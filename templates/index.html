@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shogun — Multi-Agent Travel Command</title>
+<meta name="description" content="Dispatch flight, hotel, and itinerary agents in one order. A LangGraph-powered travel planning console.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<main>
+
+  <section class="hero" id="hero" aria-label="Travel request console">
+
+    <!-- Decorative hero backdrop: tactical map / command-center treatment -->
+    <div class="hero-bg" aria-hidden="true"></div>
+    <div class="hero-grid" aria-hidden="true"></div>
+    <span class="hero-kanji-watermark" aria-hidden="true">将軍</span>
+    <div class="hero-vignette" aria-hidden="true"></div>
+
+    <span class="hero-corner corner-tl" aria-hidden="true"></span>
+    <span class="hero-corner corner-tr" aria-hidden="true"></span>
+    <span class="hero-corner corner-bl" aria-hidden="true"></span>
+    <span class="hero-corner corner-br" aria-hidden="true"></span>
+
+    <header class="site-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">将軍</span>
+        <div class="brand-text">
+          <span class="brand-name">SHOGUN</span>
+          <span class="brand-sub">Multi&#8209;Agent Travel Command</span>
+        </div>
+      </div>
+      <button type="button" id="new-trip-btn" class="ghost-btn">
+        New Campaign
+      </button>
+    </header>
+
+    <div class="hero-content">
+      <p class="eyebrow">Issue the order</p>
+      <h1 class="console-title">State your campaign.</h1>
+      <p class="console-sub">
+        One order, four scouts. Flights, lodging, and a full itinerary —
+        gathered by separate agents and returned as a single briefing.
+      </p>
+
+      <form id="travel-form" class="order-form">
+        <label for="query-input" class="sr-only">Describe your trip</label>
+        <textarea
+          id="query-input"
+          name="query"
+          rows="3"
+          required
+          placeholder="e.g. Plan a 7 day trip from Dhaka to Tokyo for two people, under ৳150,000, including flights, hotels and sightseeing"
+        ></textarea>
+
+        <div class="form-row">
+          <div class="chip-row" id="example-chips" aria-label="Example requests">
+            <button type="button" class="chip" data-example="Plan a 7 day trip from Dhaka to Tokyo, under ৳150,000, including flights, hotels and sightseeing">Dhaka → Tokyo, 7 days</button>
+            <button type="button" class="chip" data-example="Plan a complete 5 day India trip from Bangladesh including flights, hotels and sightseeing under 2 lakhs">Dhaka → Delhi, budget trip</button>
+            <button type="button" class="chip" data-example="Plan a 4 day trip from Dhaka to Bangkok for a couple, mid-range budget, with flights and hotels">Dhaka → Bangkok, 4 days</button>
+          </div>
+
+          <button type="submit" id="submit-btn" class="primary-btn">
+            <span class="btn-label">Dispatch Scouts</span>
+            <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M2 8H14M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <button type="button" class="scroll-cue" id="scroll-cue" aria-label="Scroll down">
+      <span class="scroll-cue-label">Scroll</span>
+      <span class="scroll-cue-line" aria-hidden="true"></span>
+      <svg class="scroll-cue-chevron" width="14" height="8" viewBox="0 0 14 8" fill="none" aria-hidden="true">
+        <path d="M1 1L7 7L13 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+
+  </section>
+
+  <section class="pipeline" id="pipeline" aria-live="polite" aria-label="Agent pipeline status" hidden>
+    <p class="pipeline-caption">Chain of command — dispatched in order</p>
+    <ol class="pipeline-track">
+      <li class="pipeline-node" data-agent="flight">
+        <span class="node-ring"><span class="node-kanji">斥候</span></span>
+        <span class="node-label">Flight Scout</span>
+        <span class="node-status">Standing by</span>
+      </li>
+      <li class="pipeline-node" data-agent="hotel">
+        <span class="node-ring"><span class="node-kanji">宿</span></span>
+        <span class="node-label">Hotel Scout</span>
+        <span class="node-status">Standing by</span>
+      </li>
+      <li class="pipeline-node" data-agent="itinerary">
+        <span class="node-ring"><span class="node-kanji">策</span></span>
+        <span class="node-label">Itinerary Strategist</span>
+        <span class="node-status">Standing by</span>
+      </li>
+      <li class="pipeline-node" data-agent="final">
+        <span class="node-ring"><span class="node-kanji">将</span></span>
+        <span class="node-label">Field Marshal</span>
+        <span class="node-status">Standing by</span>
+      </li>
+    </ol>
+  </section>
+
+  <section class="error-banner" id="error-banner" hidden role="alert">
+    <div class="error-inner">
+      <span class="error-kanji" aria-hidden="true">誤</span>
+      <div>
+        <p class="error-title">The campaign was called off.</p>
+        <p class="error-detail" id="error-detail"></p>
+      </div>
+      <button type="button" class="ghost-btn small" id="error-retry">Retry</button>
+    </div>
+  </section>
+
+  <section class="results" id="results" hidden aria-label="Results">
+    <div class="results-head">
+      <div class="results-tabs" role="tablist" aria-label="Result sections">
+        <button role="tab" aria-selected="true" class="tab active" data-tab="answer">Briefing</button>
+        <button role="tab" aria-selected="false" class="tab" data-tab="flights">Flight Intel</button>
+        <button role="tab" aria-selected="false" class="tab" data-tab="hotels">Lodging Intel</button>
+        <button role="tab" aria-selected="false" class="tab" data-tab="draft">Draft Itinerary</button>
+      </div>
+      <div class="results-head-actions">
+        <p class="results-meta" id="results-meta"></p>
+        <button type="button" id="download-pdf-btn" class="ghost-btn small">
+          <span id="download-pdf-label">Download PDF</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="tab-panel prose" data-panel="answer" id="panel-answer"></div>
+    <div class="tab-panel" data-panel="flights" id="panel-flights" hidden></div>
+    <div class="tab-panel prose" data-panel="hotels" id="panel-hotels" hidden></div>
+    <div class="tab-panel prose" data-panel="draft" id="panel-draft" hidden></div>
+  </section>
+
+  <aside class="history" id="history" hidden aria-label="Past campaigns">
+    <h2>Past Campaigns</h2>
+    <ul id="history-list"></ul>
+  </aside>
+
+</main>
+
+<footer class="site-footer">
+  <span>Shogun — LangGraph multi-agent pipeline · Flight status via AviationStack · Search via Tavily</span>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="/static/script.js"></script>
+</body>
+</html>

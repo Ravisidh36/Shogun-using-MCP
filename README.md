@@ -1,1 +1,1 @@
-# Shogun-using-MCP
+# Shogun-A-multi-agent
