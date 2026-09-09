@@ -3,22 +3,19 @@ import traceback
 import uvicorn
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from backend import run_travel_agent
-
-# This is to allow nested event loops for async calls in FastAPI
-import nest_asyncio
-nest_asyncio.apply()
+from utils.pdf_export import build_briefing_pdf
 
 
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(
-    title="TripMate AI",
+    title="Shogun",
     description="LangGraph Multi-Agent Travel Planner with FastAPI Frontend",
     version="1.0.0"
 )
@@ -39,6 +36,11 @@ templates = Jinja2Templates(
 
 class TravelRequest(BaseModel):
     message: str
+    thread_id: str | None = None
+
+
+class PdfRequest(BaseModel):
+    answer: str
     thread_id: str | None = None
 
 
@@ -66,7 +68,7 @@ async def travel_planner(request_data: TravelRequest):
                 }
             )
 
-        result = run_travel_agent(
+        result = await run_travel_agent(
             user_input=user_message,
             thread_id=request_data.thread_id
         )
@@ -78,6 +80,7 @@ async def travel_planner(request_data: TravelRequest):
                 "answer": result["answer"],
                 "flight_results": result["flight_results"],
                 "hotel_results": result["hotel_results"],
+                "weather_results": result["weather_results"],
                 "itinerary": result["itinerary"],
                 "llm_calls": result["llm_calls"],
             }
@@ -85,6 +88,36 @@ async def travel_planner(request_data: TravelRequest):
 
     except Exception as e:
         print("ERROR:", e)
+        traceback.print_exc()
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e)
+            }
+        )
+
+
+
+@app.post("/api/travel/pdf")
+async def travel_pdf(request_data: PdfRequest):
+    try:
+        pdf_bytes = build_briefing_pdf(
+            request_data.answer,
+            thread_id=request_data.thread_id
+        )
+
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="shogun-travel-briefing.pdf"'
+            }
+        )
+
+    except Exception as e:
+        print("PDF ERROR:", e)
         traceback.print_exc()
 
         return JSONResponse(

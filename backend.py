@@ -13,16 +13,16 @@ import uuid
 import asyncio
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langchain_core.messages import (
     AnyMessage,
     HumanMessage,
     AIMessage,
     SystemMessage,
 )
-from langchain_google_genai import ChatGoogleGenerativeAI
 # from tools.tavily_tool import tavily_search
 # from tools.flight_tool import search_flights
 from mcp_client import tavily_mcp_search, aviation_mcp_call, extract_destination, forecast_mcp_search, weather_mcp_search
@@ -42,19 +42,19 @@ def get_database_url():
 
     return database_url
 
+from langchain_groq import ChatGroq
 
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
+if not GROQ_API_KEY:
+    raise ValueError("GROQ_API_KEY is missing. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in your .env file.")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY is missing. Please add it to your .env file.")
-
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=GEMINI_API_KEY,
-    temperature=0
+llm = ChatGroq(
+    model="openai/gpt-oss-120b",
+    temperature=0,
+    api_key=os.getenv("GROQ_API_KEY"),
 )
+
 
 
 # =========================
@@ -117,26 +117,87 @@ Return concise travel guidance.
 """
 
 
+def _to_text(value) -> str:
+    """
+    MCP tool calls (langchain_mcp_adapters) can return a list of
+    content blocks instead of a plain string. Every agent result we
+    hand to the frontend must be a string (it's fed to marked.parse
+    client-side), so normalize here rather than downstream.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n\n".join(_item_to_text(item) for item in value)
+    return _item_to_text(value)
+
+
+def _item_to_text(item) -> str:
+    if isinstance(item, str):
+        return _maybe_unwrap_json_blob(item)
+    if isinstance(item, dict):
+        if isinstance(item.get("text"), str):
+            return _maybe_unwrap_json_blob(item["text"])
+
+        # Tavily-style search result shape -- render as clean
+        # markdown instead of a raw Python dict repr, which is what
+        # was showing up as "distorted" text in the Flight/Lodging
+        # tabs.
+        title = item.get("title") or item.get("name")
+        url = item.get("url") or item.get("link")
+        body = item.get("content") or item.get("snippet") or item.get("description")
+
+        if title or body or url:
+            block = []
+            if title:
+                block.append(f"**{title}**")
+            if body:
+                block.append(str(body).strip())
+            if url:
+                block.append(f"[{url}]({url})")
+            return "\n".join(block)
+
+        import json
+        return json.dumps(item, indent=2, ensure_ascii=False, default=str)
+    return str(item)
+
+
+def _maybe_unwrap_json_blob(text: str) -> str:
+    # Some MCP servers embed a JSON-encoded payload *as* the text
+    # content instead of returning it structured. If so, reformat
+    # that too rather than showing the raw JSON string.
+    stripped = text.strip()
+    if not stripped or stripped[0] not in "{[":
+        return text
+
+    import json
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, TypeError):
+        return text
+
+    results = parsed.get("results") if isinstance(parsed, dict) else parsed
+    if isinstance(results, list) and results and all(isinstance(r, dict) for r in results):
+        return "\n\n".join(_item_to_text(r) for r in results)
+
+    return text
+
+
 
 
 # Flight Agent
-def flight_agent(state: TravelState):
+async def flight_agent(state: TravelState):
     print("\nINSIDE FLIGHT AGENT\n")
 
     query = state["user_query"]
 
     try:
 
-        airports = asyncio.run(
-            aviation_mcp_call(
-                "list_airports"
-            )
+        airports = await aviation_mcp_call(
+            "list_airports"
         )
 
-        airlines = asyncio.run(
-            aviation_mcp_call(
-                "list_airlines"
-            )
+        airlines = await aviation_mcp_call(
+            "list_airlines"
         )
 
 
@@ -149,7 +210,7 @@ def flight_agent(state: TravelState):
             airline_data=str(airlines)[:3000]
         )
 
-        response = llm.invoke([
+        response = await llm.ainvoke([
             SystemMessage(
                 content="You are an expert travel flight planner."
             ),
@@ -161,6 +222,8 @@ def flight_agent(state: TravelState):
     except Exception as e:
 
         flight_data = f"Flight information unavailable: {str(e)}"
+
+    flight_data = _to_text(flight_data)
 
     return {
         "flight_results": flight_data,
@@ -180,10 +243,10 @@ def flight_agent(state: TravelState):
 # Hotel Agent
 # =========================
 
-def hotel_agent(state: TravelState):
+async def hotel_agent(state: TravelState):
     query = f"Best hotels for {state['user_query']}"
     # hotel_results = tavily_search(query)
-    hotel_results = asyncio.run(tavily_mcp_search(query))
+    hotel_results = _to_text(await tavily_mcp_search(query))
 
     return {
         "hotel_results": hotel_results,
@@ -200,26 +263,44 @@ def hotel_agent(state: TravelState):
 # Weather Agent
 # =========================
 
-def weather_agent(state: TravelState):
+async def weather_agent(state: TravelState):
 
-    city = extract_destination(state["user_query"])
+    city = await extract_destination(state["user_query"])
 
-    weather_data = asyncio.run(
-        weather_mcp_search(city)
+    weather_data = await weather_mcp_search(city)
+    forecast_data = await forecast_mcp_search(city)
+
+    lines = [f"### Current Weather \u2014 {city}"]
+
+    if isinstance(weather_data, dict) and "temperature_c" in weather_data:
+        lines.append(
+            f"- **Temperature:** {weather_data.get('temperature_c')}\u00b0C "
+            f"(feels like {weather_data.get('feels_like_c')}\u00b0C)\n"
+            f"- **Condition:** {weather_data.get('condition', 'N/A')}\n"
+            f"- **Humidity:** {weather_data.get('humidity', 'N/A')}%\n"
+            f"- **Wind speed:** {weather_data.get('wind_speed', 'N/A')} m/s"
+        )
+    else:
+        lines.append(f"Weather data unavailable: {weather_data}")
+
+    lines.append("\n### Forecast")
+
+    forecast_entries = (
+        forecast_data.get("forecast")
+        if isinstance(forecast_data, dict) else None
     )
 
-    forecast_data = asyncio.run(
-        forecast_mcp_search(city)
-    )
+    if forecast_entries:
+        for entry in forecast_entries:
+            lines.append(
+                f"- **{entry.get('datetime', 'Unknown time')}:** "
+                f"{entry.get('temperature', 'N/A')}\u00b0C, {entry.get('weather', 'N/A')}"
+            )
+    else:
+        lines.append(f"Forecast data unavailable: {forecast_data}")
 
     return {
-        "weather_results": f"""
-        Current Weather:
-        {weather_data}
-
-        Forecast:
-        {forecast_data}
-        """,
+        "weather_results": "\n".join(lines),
         "messages": [
             AIMessage(
                 content="Weather information fetched"
@@ -234,7 +315,7 @@ def weather_agent(state: TravelState):
 # Itinerary Agent
 # =========================
 
-def itinerary_agent(state: TravelState):
+async def itinerary_agent(state: TravelState):
     prompt = f"""
 Create a complete travel itinerary.
 
@@ -253,7 +334,7 @@ Weather Results:
 Make the itinerary practical, budget-aware, and easy to follow.
 """
 
-    response = llm.invoke([
+    response = await llm.ainvoke([
         SystemMessage(content="You are an expert travel planner."),
         HumanMessage(content=prompt)
     ])
@@ -270,7 +351,7 @@ Make the itinerary practical, budget-aware, and easy to follow.
 # Final Response Agent
 # =========================
 
-def final_agent(state: TravelState):
+async def final_agent(state: TravelState):
     final_prompt = f"""
 Generate the final travel response for the user.
 
@@ -307,7 +388,7 @@ Important:
 - Keep the response useful for real travel planning.
 """
 
-    response = llm.invoke([
+    response = await llm.ainvoke([
         SystemMessage(content="You are a professional AI travel booking assistant."),
         HumanMessage(content=final_prompt)
     ])
@@ -343,16 +424,42 @@ graph.add_edge("final_agent", END)
 # =========================
 DATABASE_URL = get_database_url()
 
-_conn = psycopg.connect(
-    DATABASE_URL,
-    autocommit=True,
-    row_factory=dict_row
-)
+_pool: AsyncConnectionPool | None = None
+_travel_graph = None
+_graph_init_lock = asyncio.Lock()
 
-checkpointer = PostgresSaver(_conn)
-checkpointer.setup()
 
-travel_graph = graph.compile(checkpointer=checkpointer)
+async def get_travel_graph():
+    """
+    Lazily creates the async connection pool + checkpointer on first
+    use, inside a running event loop. Using AsyncConnectionPool (not a
+    single bare connection) means dropped/idle Render connections are
+    detected and replaced automatically instead of causing a 500 on
+    the first request after the connection goes stale.
+    """
+    global _pool, _travel_graph
+
+    if _travel_graph is not None:
+        return _travel_graph
+
+    async with _graph_init_lock:
+        if _travel_graph is not None:
+            return _travel_graph
+
+        _pool = AsyncConnectionPool(
+            conninfo=DATABASE_URL,
+            max_size=5,
+            kwargs={"autocommit": True, "row_factory": dict_row},
+            open=False,
+        )
+        await _pool.open()
+
+        checkpointer = AsyncPostgresSaver(_pool)
+        await checkpointer.setup()
+
+        _travel_graph = graph.compile(checkpointer=checkpointer)
+
+    return _travel_graph
 
 
 
@@ -360,7 +467,7 @@ travel_graph = graph.compile(checkpointer=checkpointer)
 # Function for FastAPI
 # =========================
 
-def run_travel_agent(user_input: str, thread_id: str | None = None):
+async def run_travel_agent(user_input: str, thread_id: str | None = None):
     if not thread_id:
         thread_id = f"user_{uuid.uuid4().hex}"
 
@@ -370,7 +477,9 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
         }
     }
 
-    result = travel_graph.invoke(
+    travel_graph = await get_travel_graph()
+
+    result = await travel_graph.ainvoke(
         {
             "messages": [
                 HumanMessage(content=user_input)

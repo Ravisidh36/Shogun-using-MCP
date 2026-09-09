@@ -7,6 +7,7 @@ layout details.
 """
 
 import io
+import re
 from datetime import datetime, timezone
 
 import markdown2
@@ -39,6 +40,35 @@ def _sanitize_for_pdf(text: str) -> str:
     for src, dst in _PDF_SAFE_REPLACEMENTS.items():
         text = text.replace(src, dst)
     return text.encode("latin-1", errors="ignore").decode("latin-1")
+
+
+def _strip_images(html: str) -> str:
+    # fpdf2's write_html() fetches <img> src attributes over the
+    # network synchronously. LLM-authored markdown occasionally
+    # carries an image/link through from search results, and a
+    # slow/dead/blocked URL there would take the whole export down.
+    # The briefing doesn't need embedded remote images anyway.
+    return re.sub(r"<img\b[^>]*>", "", html, flags=re.IGNORECASE)
+
+
+def _strip_html_tags(html: str) -> str:
+    text = re.sub(r"(?i)</(p|div|li|tr|h[1-6])>", "\n", html)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').replace("&#39;", "'")
+    return _break_long_tokens(text)
+
+
+def _break_long_tokens(text: str, max_len: int = 60) -> str:
+    # fpdf2 can't wrap a run of characters with no whitespace (a raw
+    # URL, a long reference code) -- it raises rather than overflow
+    # the column. Insert a zero-width space every max_len chars in
+    # any such run so there's always a legal break point.
+    def _break(match):
+        token = match.group(0)
+        return " ".join(token[i:i + max_len] for i in range(0, len(token), max_len))
+
+    return re.sub(r"\S{%d,}" % (max_len + 1), _break, text)
 
 
 class _BriefingPDF(FPDF):
@@ -80,6 +110,7 @@ def build_briefing_pdf(markdown_text: str, thread_id: str | None = None) -> byte
         markdown_text,
         extras=["fenced-code-blocks", "tables", "break-on-newline"],
     )
+    html = _strip_images(html)
 
     pdf = _BriefingPDF(format="A4")
     pdf.set_auto_page_break(auto=True, margin=18)
@@ -88,7 +119,21 @@ def build_briefing_pdf(markdown_text: str, thread_id: str | None = None) -> byte
     pdf.set_font("Helvetica", size=11)
     pdf.set_text_color(20, 20, 20)
 
-    pdf.write_html(html)
+    try:
+        pdf.write_html(html)
+    except Exception:
+        # Whatever the LLM wrote broke fpdf2's HTML renderer (a stray
+        # tag, an oversized unbroken token, an unsupported table
+        # shape, etc). Fall back to plain wrapped text rather than
+        # failing the export entirely -- the content still matters
+        # more than the formatting.
+        pdf = _BriefingPDF(format="A4")
+        pdf.set_auto_page_break(auto=True, margin=18)
+        pdf.set_margins(left=18, top=22, right=18)
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=11)
+        pdf.set_text_color(20, 20, 20)
+        pdf.multi_cell(0, 6, _strip_html_tags(html))
 
     if thread_id:
         pdf.ln(8)

@@ -25,7 +25,7 @@ load_dotenv()
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 AVIATION_STACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
 # ==========================================
@@ -76,10 +76,13 @@ WEATHER_ENV["OPENWEATHER_API_KEY"] = (
 # Gemini LLM
 # ==========================================
 
-llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=GEMINI_API_KEY,
-    temperature=0
+import os
+from langchain_groq import ChatGroq
+
+llm = ChatGroq(
+    model="openai/gpt-oss-120b",
+    temperature=0,
+    api_key=os.getenv("GROQ_API_KEY")
 )
 
 
@@ -426,7 +429,7 @@ async def forecast_mcp_search(city: str):
 # Destination extractor
 # ==========================================
 
-def extract_destination(query: str):
+async def extract_destination(query: str):
 
     prompt = f"""
 Extract only the destination city or country
@@ -439,6 +442,6 @@ Return ONLY the destination name.
 Do not explain anything.
 """
 
-    response = llm.invoke(prompt)
+    response = await llm.ainvoke(prompt)
 
     return response.content.strip()
