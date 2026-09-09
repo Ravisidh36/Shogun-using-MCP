@@ -5,7 +5,7 @@ from pathlib import Path
 import certifi
 from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 
 
 # ==========================================
@@ -25,8 +25,7 @@ load_dotenv()
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 AVIATION_STACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
 
 # ==========================================
 # Project paths
@@ -50,8 +49,8 @@ if not AVIATION_STACK_API_KEY:
 if not OPENWEATHER_API_KEY:
     print("WARNING: OPENWEATHER_API_KEY is not set.")
 
-if not GEMINI_API_KEY:
-    print("WARNING: GEMINI_API_KEY is not set.")
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY is not set.")
 
 
 # ==========================================
@@ -73,11 +72,10 @@ WEATHER_ENV["OPENWEATHER_API_KEY"] = (
 
 
 # ==========================================
-# Gemini LLM
+# GROQ LLM
 # ==========================================
 
-import os
-from langchain_groq import ChatGroq
+
 
 llm = ChatGroq(
     model="openai/gpt-oss-120b",
