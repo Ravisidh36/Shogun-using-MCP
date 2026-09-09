@@ -78,7 +78,7 @@ WEATHER_ENV["OPENWEATHER_API_KEY"] = (
 
 
 llm = ChatGroq(
-    model="openai/gpt-oss-120b",
+    model="openai/gpt-oss-20b",
     temperature=0,
     api_key=os.getenv("GROQ_API_KEY")
 )
@@ -430,14 +430,12 @@ async def forecast_mcp_search(city: str):
 async def extract_destination(query: str):
 
     prompt = f"""
-Extract only the destination city or country
-from the following travel query.
+Extract the destination from this travel request.
 
 Query:
 {query}
 
 Return ONLY the destination name.
-Do not explain anything.
 """
 
     response = await llm.ainvoke(prompt)

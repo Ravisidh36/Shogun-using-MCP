@@ -44,13 +44,13 @@ def get_database_url():
 
 from langchain_groq import ChatGroq
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
 
 if not GROQ_API_KEY:
-    raise ValueError("GROQ_API_KEY is missing. Set GEMINI_API_KEY (or GOOGLE_API_KEY) in your .env file.")
+    raise ValueError("GROQ_API_KEY is missing. Set GROQ_API_KEY  in your .env file.")
 
 llm = ChatGroq(
-    model="openai/gpt-oss-120b",
+    model="openai/gpt-oss-20b",
     temperature=0,
     api_key=os.getenv("GROQ_API_KEY"),
 )
