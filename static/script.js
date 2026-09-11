@@ -131,16 +131,32 @@
     renderHistory();
   }
 
+  function relativeTime(ts) {
+    const diffMs = Date.now() - ts;
+    const mins = Math.round(diffMs / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins} min${mins === 1 ? "" : "s"} ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+    const days = Math.round(hours / 24);
+    return `${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
   function renderHistory() {
     const items = loadHistory();
 
-    if (!items.length) {
-      el.history.hidden = true;
-      return;
-    }
-
     el.history.hidden = false;
     el.historyList.innerHTML = "";
+
+    if (!items.length) {
+      const empty = document.createElement("li");
+      empty.className = "history-empty";
+      empty.innerHTML =
+        '<p class="panel-empty-title">No previous trips yet</p>' +
+        '<p class="panel-empty-detail">Your saved travel plans will appear here.</p>';
+      el.historyList.appendChild(empty);
+      return;
+    }
 
     items.forEach((item) => {
       const li = document.createElement("li");
@@ -149,6 +165,10 @@
       span.className = "history-query";
       span.textContent = item.query;
       span.title = item.query;
+
+      const meta = document.createElement("span");
+      meta.className = "history-meta";
+      meta.textContent = relativeTime(item.ts);
 
       const btn = document.createElement("button");
       btn.type = "button";
@@ -166,6 +186,7 @@
       });
 
       li.appendChild(span);
+      li.appendChild(meta);
       li.appendChild(btn);
 
       el.historyList.appendChild(li);
@@ -306,6 +327,182 @@
   }
 
   // ---------------------------------------------------------
+  // Structured Flight Intel (falls back to the plain-text summary
+  // if the backend couldn't build structured flight_data for this
+  // request — e.g. the flight API itself is down).
+  // ---------------------------------------------------------
+
+  function renderFlightPanel(container, flightData, fallbackText) {
+    container.innerHTML = "";
+    container.classList.remove("is-collapsible", "is-collapsed");
+    container.style.maxHeight = "";
+
+    if (flightData && Array.isArray(flightData.flights) && flightData.flights.length) {
+      if (flightData.route_info) {
+        const route = document.createElement("p");
+        route.className = "panel-lede";
+        route.textContent = flightData.route_info;
+        container.appendChild(route);
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "flight-grid";
+
+      flightData.flights.forEach((f) => {
+        const card = document.createElement("div");
+        card.className = "flight-card";
+
+        const dep = f.departure || {};
+        const arr = f.arrival || {};
+        const status = (f.status || "unknown").toLowerCase();
+
+        card.innerHTML = `
+          <div class="flight-card-head">
+            <span class="flight-airline">${escapeHtml(f.airline || "Unknown airline")}</span>
+            <span class="flight-status flight-status-${escapeHtml(status)}">${escapeHtml(status)}</span>
+          </div>
+          <div class="flight-card-number">${escapeHtml(f.flight_number || "—")}</div>
+          <div class="flight-card-route">
+            <div class="flight-endpoint">
+              <span class="flight-iata">${escapeHtml(dep.iata || "—")}</span>
+              <span class="flight-airport">${escapeHtml(dep.airport || "")}</span>
+              <span class="flight-time">${escapeHtml(dep.scheduled || "")}</span>
+            </div>
+            <span class="flight-arrow">→</span>
+            <div class="flight-endpoint">
+              <span class="flight-iata">${escapeHtml(arr.iata || "—")}</span>
+              <span class="flight-airport">${escapeHtml(arr.airport || "")}</span>
+              <span class="flight-time">${escapeHtml(arr.scheduled || "")}</span>
+            </div>
+          </div>
+        `;
+        grid.appendChild(card);
+      });
+
+      container.appendChild(grid);
+
+      if (flightData.notice) {
+        const notice = document.createElement("p");
+        notice.className = "panel-notice";
+        notice.textContent = flightData.notice;
+        container.appendChild(notice);
+      }
+      return;
+    }
+
+    if (flightData && flightData.unavailable) {
+      renderEmptyState(
+        container,
+        "Flight status is temporarily unavailable",
+        "We'll rely on general route guidance in your itinerary instead."
+      );
+      return;
+    }
+
+    if (flightData && flightData.notice) {
+      renderEmptyState(container, "No live flights in range right now", flightData.notice);
+      return;
+    }
+
+    renderCollapsibleMarkdown(container, fallbackText);
+  }
+
+  // ---------------------------------------------------------
+  // Structured Weather (falls back to plain text similarly).
+  // ---------------------------------------------------------
+
+  function weatherEmoji(condition) {
+    const c = (condition || "").toLowerCase();
+    if (c.includes("thunder") || c.includes("storm")) return "⛈️";
+    if (c.includes("snow")) return "❄️";
+    if (c.includes("rain") || c.includes("drizzle")) return "🌧️";
+    if (c.includes("fog") || c.includes("mist") || c.includes("haze")) return "🌫️";
+    if (c.includes("cloud") || c.includes("overcast")) return "☁️";
+    if (c.includes("clear") || c.includes("sun")) return "☀️";
+    return "🌤️";
+  }
+
+  function renderWeatherPanel(container, weatherData, fallbackText) {
+    container.innerHTML = "";
+    container.classList.remove("is-collapsible", "is-collapsed");
+    container.style.maxHeight = "";
+
+    if (!weatherData) {
+      renderEmptyState(
+        container,
+        "Weather is temporarily unavailable",
+        "We couldn't reach the weather service for this destination just now."
+      );
+      return;
+    }
+
+    const wrap = document.createElement("div");
+    wrap.className = "weather-panel";
+
+    const hasCurrent = weatherData.temperature_c !== null && weatherData.temperature_c !== undefined;
+
+    if (hasCurrent) {
+      const current = document.createElement("div");
+      current.className = "weather-current";
+      current.innerHTML = `
+        <div class="weather-current-icon">${weatherEmoji(weatherData.condition)}</div>
+        <div class="weather-current-main">
+          <div class="weather-current-temp">${Math.round(weatherData.temperature_c)}°C</div>
+          <div class="weather-current-condition">${escapeHtml(weatherData.condition || "")}</div>
+          <div class="weather-current-city">${escapeHtml(weatherData.city || "")}</div>
+        </div>
+        <div class="weather-current-stats">
+          <div><span>Feels like</span><strong>${weatherData.feels_like_c != null ? Math.round(weatherData.feels_like_c) + "°C" : "—"}</strong></div>
+          <div><span>Humidity</span><strong>${weatherData.humidity != null ? weatherData.humidity + "%" : "—"}</strong></div>
+          <div><span>Wind</span><strong>${weatherData.wind_speed != null ? weatherData.wind_speed + " m/s" : "—"}</strong></div>
+        </div>
+      `;
+      wrap.appendChild(current);
+    } else {
+      const notice = document.createElement("p");
+      notice.className = "panel-notice";
+      notice.textContent = `Current conditions are temporarily unavailable for ${weatherData.city || "this destination"}.`;
+      wrap.appendChild(notice);
+    }
+
+    const forecast = Array.isArray(weatherData.forecast) ? weatherData.forecast : [];
+
+    if (forecast.length) {
+      const forecastRow = document.createElement("div");
+      forecastRow.className = "weather-forecast";
+      forecast.forEach((entry) => {
+        const card = document.createElement("div");
+        card.className = "weather-forecast-card";
+        card.innerHTML = `
+          <div class="weather-forecast-time">${escapeHtml(entry.datetime_label || entry.datetime || "")}</div>
+          <div class="weather-forecast-icon">${weatherEmoji(entry.weather)}</div>
+          <div class="weather-forecast-temp">${entry.temperature != null ? Math.round(entry.temperature) + "°C" : "—"}</div>
+          <div class="weather-forecast-cond">${escapeHtml(entry.weather || "")}</div>
+        `;
+        forecastRow.appendChild(card);
+      });
+      wrap.appendChild(forecastRow);
+    }
+
+    container.appendChild(wrap);
+  }
+
+  function renderEmptyState(container, title, detail) {
+    container.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "panel-empty";
+    const h = document.createElement("p");
+    h.className = "panel-empty-title";
+    h.textContent = title;
+    const p = document.createElement("p");
+    p.className = "panel-empty-detail";
+    p.textContent = detail || "";
+    wrap.appendChild(h);
+    wrap.appendChild(p);
+    container.appendChild(wrap);
+  }
+
+  // ---------------------------------------------------------
   // Collapsible panels
   // ---------------------------------------------------------
 
@@ -422,18 +619,18 @@
     el.panels.answer.innerHTML =
       renderMarkdown(payload.answer);
 
-    delete el.panels.flights.dataset.collapseChecked;
-    delete el.panels.weather.dataset.collapseChecked;
     delete el.panels.hotels.dataset.collapseChecked;
     delete el.panels.draft.dataset.collapseChecked;
 
-    renderCollapsibleMarkdown(
+    renderFlightPanel(
       el.panels.flights,
+      payload.flight_data,
       payload.flight_results
     );
 
-    renderCollapsibleMarkdown(
+    renderWeatherPanel(
       el.panels.weather,
+      payload.weather_data,
       payload.weather_results
     );
 
@@ -447,10 +644,14 @@
       payload.itinerary
     );
 
+    const sourceCount = payload.llm_calls ?? 0;
     el.resultsMeta.textContent =
-      `Thread ${payload.thread_id || "—"} · ${
-        payload.llm_calls ?? "?"
-      } agent calls`;
+      `Trip research complete · ${sourceCount} ${sourceCount === 1 ? "source" : "sources"}`;
+    // Thread id stays available on hover for debugging without
+    // being shown as primary UI copy.
+    el.resultsMeta.title = payload.thread_id
+      ? `Thread ${payload.thread_id}`
+      : "";
 
     activateTab("answer");
 
@@ -458,9 +659,14 @@
     el.errorBanner.hidden = true;
   }
 
-  function renderError(message) {
-    el.errorDetail.textContent =
-      message || "Unknown error.";
+  function renderError(error) {
+    const message =
+      typeof error === "string"
+        ? error
+        : (error && error.message) ||
+          "Something went wrong. Please try again.";
+
+    el.errorDetail.textContent = message;
 
     el.errorBanner.hidden = false;
     el.results.hidden = true;
@@ -712,9 +918,21 @@
       );
 
       if (!res.ok) {
-        throw new Error(
-          `PDF export failed (HTTP ${res.status}).`
-        );
+        let message = `PDF export failed (HTTP ${res.status}).`;
+
+        try {
+          const errBody = await res.json();
+          if (errBody?.error) {
+            message =
+              typeof errBody.error === "string"
+                ? errBody.error
+                : errBody.error.message || message;
+          }
+        } catch {
+          // Body wasn't JSON — keep the generic message above.
+        }
+
+        throw new Error(message);
       }
 
       const blob = await res.blob();

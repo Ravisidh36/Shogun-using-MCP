@@ -1289,3 +1289,248 @@ body {
     padding-inline: .65rem;
   }
 }
+
+/* =========================================================
+   Structured Flight Intel / Weather / empty states
+   ========================================================= */
+
+.panel-lede {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.panel-notice {
+  margin: 1rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.panel-empty {
+  padding: 1.5rem 0;
+  text-align: center;
+}
+.panel-empty-title {
+  margin: 0 0 0.35rem;
+  font-weight: 700;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+.panel-empty-detail {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ---- Flight cards ---- */
+
+.flight-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.9rem;
+}
+
+.flight-card {
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+
+.flight-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.flight-airline {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--ink);
+}
+
+.flight-status {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--cream-dim);
+  color: var(--text-muted);
+}
+.flight-status-active,
+.flight-status-landed { background: rgba(78, 122, 99, 0.14); color: var(--jade); }
+.flight-status-cancelled,
+.flight-status-diverted,
+.flight-status-incident { background: var(--shu-tint); color: var(--shu); }
+.flight-status-scheduled { background: var(--cream-dim); color: var(--text-muted); }
+
+.flight-card-number {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+.flight-card-route {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.flight-endpoint {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.flight-iata {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.flight-airport {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flight-time {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.flight-arrow {
+  color: var(--shu);
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+/* ---- Weather panel ---- */
+
+.weather-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.weather-current {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.weather-current-icon { font-size: 2.75rem; line-height: 1; }
+
+.weather-current-main { min-width: 140px; }
+
+.weather-current-temp {
+  font-family: var(--font-display);
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.weather-current-condition {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.weather-current-city {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.weather-current-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.weather-current-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.weather-current-stats span {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.weather-current-stats strong {
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.weather-forecast {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.75rem;
+  border-top: 1px dashed var(--border);
+  padding-top: 1.25rem;
+}
+
+.weather-forecast-card {
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.6rem;
+  text-align: center;
+}
+
+.weather-forecast-time {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+.weather-forecast-icon { font-size: 1.4rem; margin-bottom: 0.3rem; }
+.weather-forecast-temp {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.weather-forecast-cond {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: capitalize;
+  margin-top: 0.15rem;
+}
+
+/* ---- Past Campaigns: empty state + relative time ---- */
+
+.history-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 2rem 1rem;
+  background: var(--cream-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+.history-meta {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .weather-current-stats { margin-left: 0; gap: 1rem; }
+  .flight-grid { grid-template-columns: 1fr; }
+}

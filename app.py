@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from backend import run_travel_agent
 from utils.pdf_export import build_briefing_pdf
+from utils.errors import to_client_error
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -64,7 +65,11 @@ async def travel_planner(request_data: TravelRequest):
                 status_code=400,
                 content={
                     "success": False,
-                    "error": "Message cannot be empty."
+                    "error": {
+                        "code": "EMPTY_MESSAGE",
+                        "message": "Please describe the trip you'd like planned.",
+                        "retryable": False,
+                    }
                 }
             )
 
@@ -79,8 +84,10 @@ async def travel_planner(request_data: TravelRequest):
                 "thread_id": result["thread_id"],
                 "answer": result["answer"],
                 "flight_results": result["flight_results"],
+                "flight_data": result.get("flight_data"),
                 "hotel_results": result["hotel_results"],
                 "weather_results": result["weather_results"],
+                "weather_data": result.get("weather_data"),
                 "itinerary": result["itinerary"],
                 "llm_calls": result["llm_calls"],
             }
@@ -94,7 +101,7 @@ async def travel_planner(request_data: TravelRequest):
             status_code=500,
             content={
                 "success": False,
-                "error": str(e)
+                "error": to_client_error(e)
             }
         )
 
@@ -124,7 +131,7 @@ async def travel_pdf(request_data: PdfRequest):
             status_code=500,
             content={
                 "success": False,
-                "error": str(e)
+                "error": to_client_error(e)
             }
         )
 

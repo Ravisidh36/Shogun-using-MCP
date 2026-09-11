@@ -23,7 +23,6 @@ load_dotenv()
 # ==========================================
 
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
-AVIATION_STACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY") 
 
@@ -43,9 +42,6 @@ WEATHER_SERVER_PATH = PROJECT_DIR / "mcp_customserver.py"
 if not TAVILY_API_KEY:
     print("WARNING: TAVILY_API_KEY is not set.")
 
-if not AVIATION_STACK_API_KEY:
-    print("WARNING: AVIATIONSTACK_API_KEY is not set.")
-
 if not OPENWEATHER_API_KEY:
     print("WARNING: OPENWEATHER_API_KEY is not set.")
 
@@ -56,13 +52,6 @@ if not GROQ_API_KEY:
 # ==========================================
 # Environment for local MCP servers
 # ==========================================
-
-AVIATION_ENV = os.environ.copy()
-
-AVIATION_ENV["AVIATION_STACK_API_KEY"] = (
-    AVIATION_STACK_API_KEY or ""
-)
-
 
 WEATHER_ENV = os.environ.copy()
 
@@ -105,23 +94,6 @@ client = MultiServerMCPClient(
 
 
         # ----------------------------------
-        # AviationStack MCP
-        # ----------------------------------
-
-        "aviationstack": {
-            "transport": "stdio",
-
-            "command": "uvx",
-            "args": [
-                "--with", "mcp<2",
-                "aviationstack-mcp"
-            ],
-
-            "env": AVIATION_ENV
-        },
-
-
-        # ----------------------------------
         # Weather MCP
         # ----------------------------------
 
@@ -152,7 +124,6 @@ async def get_all_tools():
 
     servers = (
         "tavily",
-        "aviationstack",
         "weather"
     )
 
@@ -259,70 +230,6 @@ async def tavily_mcp_search(query: str):
         {
             "query": query
         }
-    )
-
-    return result
-
-
-# ==========================================
-# AviationStack MCP
-# ==========================================
-
-aviation_tools = {}
-
-
-async def initialize_aviation_tools():
-
-    global aviation_tools
-
-    if aviation_tools:
-        return
-
-    tools = await client.get_tools(
-        server_name="aviationstack"
-    )
-
-    aviation_tools = {
-        tool.name: tool
-        for tool in tools
-    }
-
-    if not aviation_tools:
-
-        raise RuntimeError(
-            "AviationStack MCP connected "
-            "but returned no tools."
-        )
-
-
-async def aviation_mcp_call(
-    tool_name: str,
-    tool_args: dict | None = None
-):
-
-    await initialize_aviation_tools()
-
-    tool = aviation_tools.get(
-        tool_name
-    )
-
-    if tool is None:
-
-        available_tools = ", ".join(
-            sorted(
-                aviation_tools.keys()
-            )
-        )
-
-        raise ValueError(
-            f"AviationStack tool "
-            f"'{tool_name}' was not found.\n"
-            f"Available tools: "
-            f"{available_tools or 'none'}"
-        )
-
-    result = await tool.ainvoke(
-        tool_args or {}
     )
 
     return result

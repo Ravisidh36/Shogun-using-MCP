@@ -23,9 +23,8 @@ from langchain_core.messages import (
     AIMessage,
     SystemMessage,
 )
-# from tools.tavily_tool import tavily_search
-# from tools.flight_tool import search_flights
-from mcp_client import tavily_mcp_search, aviation_mcp_call, extract_destination, forecast_mcp_search, weather_mcp_search
+from tools.flight_tool import fetch_flight_report
+from mcp_client import tavily_mcp_search, extract_destination, forecast_mcp_search, weather_mcp_search
 
 
 def get_database_url():
@@ -65,10 +64,12 @@ class TravelState(TypedDict):
     messages: Annotated[list[AnyMessage], operator.add]
     user_query: str
     flight_results: str
+    flight_data: dict | None
     hotel_results: str
     itinerary: str
     llm_calls: int
     weather_results: str
+    weather_data: dict | None
 
 
 # =========================
@@ -90,32 +91,75 @@ class TravelState(TypedDict):
 
 
 
-# Flight Tool Router Prompt
-FLIGHT_AGENT_PROMPT = """
-You are a travel flight expert.
+# Flight Agent
+async def flight_agent(state: TravelState):
+    print("\nINSIDE FLIGHT AGENT\n")
 
-User Query:
-{query}
+    query = state["user_query"]
 
-Airport Information:
-{airport_data}
+    try:
+        # Direct AviationStack REST call — one request, no
+        # subprocess/MCP/uvx dependency. See tools/flight_tool.py.
+        # Runs in a thread since fetch_flight_report uses the
+        # blocking `requests` library and this is an async node.
+        report = await asyncio.to_thread(fetch_flight_report, query)
 
-Airline Information:
-{airline_data}
+    except Exception as e:
+        print("FLIGHT AGENT ERROR:", repr(e))
+        return {
+            "flight_results": (
+                "Live flight status is temporarily unavailable. "
+                "We'll rely on general route guidance for this trip instead."
+            ),
+            "flight_data": None,
+            "messages": [
+                AIMessage(content="Flight lookup unavailable, continuing with general guidance.")
+            ],
+            "llm_calls": state.get("llm_calls", 0) + 1
+        }
 
-Generate:
+    if report.get("error"):
+        print("FLIGHT API ERROR:", report["error"])
 
-1. Likely departure airport
-2. Likely arrival airport
-3. Airlines serving this route
-4. Typical flight duration
-5. Estimated airfare range
-6. Peak season pricing warning
-7. Booking advice
+    # flight_data is the structured payload the frontend renders as
+    # cards. flight_results stays a short text summary used both as
+    # a graceful text fallback and as context for later LLM prompts
+    # (itinerary_agent / final_agent).
+    flight_data = {
+        "route_info": report.get("route_info") or "",
+        "flights": report.get("flights") or [],
+        "notice": report.get("notice"),
+        "unavailable": bool(report.get("error")) and not report.get("flights"),
+    }
 
-Return concise travel guidance.
-"""
+    if flight_data["flights"]:
+        flight_results = report["summary_text"]
+    elif report.get("error"):
+        flight_results = (
+            "Live flight status is temporarily unavailable for this route. "
+            "We'll rely on general route guidance for this trip instead."
+        )
+    else:
+        flight_results = report["summary_text"]  # "no live flights in range" + price notice
 
+    return {
+        "flight_results": flight_results,
+        "flight_data": flight_data,
+        "messages": [
+            AIMessage(
+                content="Flight information fetched"
+            )
+        ],
+        "llm_calls": state.get("llm_calls", 0) + 1
+    }
+
+
+
+
+
+# =========================
+# Hotel Agent
+# =========================
 
 def _to_text(value) -> str:
     """
@@ -139,9 +183,7 @@ def _item_to_text(item) -> str:
             return _maybe_unwrap_json_blob(item["text"])
 
         # Tavily-style search result shape -- render as clean
-        # markdown instead of a raw Python dict repr, which is what
-        # was showing up as "distorted" text in the Flight/Lodging
-        # tabs.
+        # markdown instead of a raw Python dict repr.
         title = item.get("title") or item.get("name")
         url = item.get("url") or item.get("link")
         body = item.get("content") or item.get("snippet") or item.get("description")
@@ -182,71 +224,52 @@ def _maybe_unwrap_json_blob(text: str) -> str:
     return text
 
 
+# In-process cache: same normalized query within this server's
+# lifetime reuses the last Tavily result instead of re-hitting an
+# already-limited API. Cleared on restart/redeploy — that's fine,
+# it only exists to stop the *same* destination search from being
+# re-fired repeatedly during a demo/testing session.
+_hotel_cache: dict[str, str] = {}
 
 
-# Flight Agent
-async def flight_agent(state: TravelState):
-    print("\nINSIDE FLIGHT AGENT\n")
+def _is_rate_limited(error: Exception) -> bool:
+    text = str(error).lower()
+    return "429" in text or "rate limit" in text or "too many requests" in text
 
-    query = state["user_query"]
-
-    try:
-
-        airports = await aviation_mcp_call(
-            "list_airports"
-        )
-
-        airlines = await aviation_mcp_call(
-            "list_airlines"
-        )
-
-
-        print("\nAIRPORTS:", airports)
-        print("\nAIRLINES:", airlines)
-
-        prompt = FLIGHT_AGENT_PROMPT.format(
-            query=query,
-            airport_data=str(airports)[:3000],
-            airline_data=str(airlines)[:3000]
-        )
-
-        response = await llm.ainvoke([
-            SystemMessage(
-                content="You are an expert travel flight planner."
-            ),
-            HumanMessage(content=prompt)
-        ])
-
-        flight_data = response.content
-
-    except Exception as e:
-
-        flight_data = f"Flight information unavailable: {str(e)}"
-
-    flight_data = _to_text(flight_data)
-
-    return {
-        "flight_results": flight_data,
-        "messages": [
-            AIMessage(
-                content="Flight recommendations generated"
-            )
-        ],
-        "llm_calls": state.get("llm_calls", 0) + 1
-    }
-
-
-
-
-
-# =========================
-# Hotel Agent
-# =========================
 
 async def hotel_agent(state: TravelState):
     query = f"Best hotels for {state['user_query']}"
-    # hotel_results = tavily_search(query)
-    hotel_results = _to_text(await tavily_mcp_search(query))
+    cache_key = query.strip().lower()
+
+    if cache_key in _hotel_cache:
+        hotel_results = _hotel_cache[cache_key]
+
+        return {
+            "hotel_results": hotel_results,
+            "messages": [
+                AIMessage(content="Hotel information fetched (cached).")
+            ],
+            "llm_calls": state.get("llm_calls", 0) + 1
+        }
+
+    try:
+        hotel_results = _to_text(await tavily_mcp_search(query))
+        _hotel_cache[cache_key] = hotel_results
+
+    except Exception as e:
+        print("HOTEL AGENT ERROR:", repr(e))
+
+        if _is_rate_limited(e):
+            hotel_results = (
+                "Lodging search is temporarily unavailable. We've prepared "
+                "recommendations based on your destination and budget — ask "
+                "the itinerary for specific neighborhood or hotel-type guidance."
+            )
+        else:
+            hotel_results = (
+                "Lodging search is temporarily unavailable right now. "
+                "We'll continue building the rest of your trip."
+            )
 
     return {
         "hotel_results": hotel_results,
@@ -263,44 +286,119 @@ async def hotel_agent(state: TravelState):
 # Weather Agent
 # =========================
 
+def _unwrap_mcp_dict(value):
+    """
+    FastMCP tools that return a plain Python dict still get
+    serialized over the wire as an MCP content block, so what comes
+    back through langchain_mcp_adapters is often
+    [{"type": "text", "text": "<json string>"}] rather than the
+    dict itself. The old `isinstance(value, dict)` check here never
+    matched that shape, which is exactly why raw MCP envelopes were
+    showing up in the Weather tab. This unwraps either shape and
+    returns a real dict, or None if it genuinely can't be parsed.
+    """
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, list):
+        for item in value:
+            text = item.get("text") if isinstance(item, dict) else None
+            if isinstance(text, str):
+                import json
+                try:
+                    parsed = json.loads(text)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
+
+    return None
+
+
+def _format_forecast_datetime(raw) -> str:
+    from datetime import datetime
+    if not raw:
+        return "Unknown time"
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        return dt.strftime("%a %d %b, %H:%M")
+    except (ValueError, TypeError):
+        return raw
+
+
 async def weather_agent(state: TravelState):
 
     city = await extract_destination(state["user_query"])
 
-    weather_data = await weather_mcp_search(city)
-    forecast_data = await forecast_mcp_search(city)
+    try:
+        raw_weather = await weather_mcp_search(city)
+        raw_forecast = await forecast_mcp_search(city)
+    except Exception as e:
+        print("WEATHER AGENT ERROR:", repr(e))
+        return {
+            "weather_results": f"Weather information is temporarily unavailable for {city}.",
+            "weather_data": None,
+            "messages": [
+                AIMessage(content="Weather lookup unavailable.")
+            ]
+        }
 
-    lines = [f"### Current Weather \u2014 {city}"]
+    weather_dict = _unwrap_mcp_dict(raw_weather)
+    forecast_dict = _unwrap_mcp_dict(raw_forecast)
 
-    if isinstance(weather_data, dict) and "temperature_c" in weather_data:
+    weather_ok = bool(weather_dict) and "temperature_c" in weather_dict
+    forecast_entries = (forecast_dict or {}).get("forecast") or []
+
+    lines = [f"### Current Weather — {city}"]
+
+    if weather_ok:
         lines.append(
-            f"- **Temperature:** {weather_data.get('temperature_c')}\u00b0C "
-            f"(feels like {weather_data.get('feels_like_c')}\u00b0C)\n"
-            f"- **Condition:** {weather_data.get('condition', 'N/A')}\n"
-            f"- **Humidity:** {weather_data.get('humidity', 'N/A')}%\n"
-            f"- **Wind speed:** {weather_data.get('wind_speed', 'N/A')} m/s"
+            f"- **Temperature:** {weather_dict.get('temperature_c')}°C "
+            f"(feels like {weather_dict.get('feels_like_c')}°C)\n"
+            f"- **Condition:** {weather_dict.get('condition', 'N/A')}\n"
+            f"- **Humidity:** {weather_dict.get('humidity', 'N/A')}%\n"
+            f"- **Wind speed:** {weather_dict.get('wind_speed', 'N/A')} m/s"
         )
     else:
-        lines.append(f"Weather data unavailable: {weather_data}")
+        lines.append(f"Weather data is temporarily unavailable for {city}.")
 
     lines.append("\n### Forecast")
-
-    forecast_entries = (
-        forecast_data.get("forecast")
-        if isinstance(forecast_data, dict) else None
-    )
 
     if forecast_entries:
         for entry in forecast_entries:
             lines.append(
-                f"- **{entry.get('datetime', 'Unknown time')}:** "
-                f"{entry.get('temperature', 'N/A')}\u00b0C, {entry.get('weather', 'N/A')}"
+                f"- **{_format_forecast_datetime(entry.get('datetime'))}:** "
+                f"{entry.get('temperature', 'N/A')}°C, {entry.get('weather', 'N/A')}"
             )
     else:
-        lines.append(f"Forecast data unavailable: {forecast_data}")
+        lines.append("Forecast data is temporarily unavailable.")
+
+    # Structured payload for the frontend's weather cards. None only
+    # when we genuinely have nothing usable, so the UI can show a
+    # clean fallback instead of an empty/broken layout.
+    weather_data = None
+    if weather_ok or forecast_entries:
+        weather_data = {
+            "city": (weather_dict or {}).get("city") or city,
+            "temperature_c": (weather_dict or {}).get("temperature_c"),
+            "feels_like_c": (weather_dict or {}).get("feels_like_c"),
+            "humidity": (weather_dict or {}).get("humidity"),
+            "condition": (weather_dict or {}).get("condition"),
+            "wind_speed": (weather_dict or {}).get("wind_speed"),
+            "forecast": [
+                {
+                    "datetime": entry.get("datetime"),
+                    "datetime_label": _format_forecast_datetime(entry.get("datetime")),
+                    "temperature": entry.get("temperature"),
+                    "weather": entry.get("weather"),
+                }
+                for entry in forecast_entries
+            ],
+        }
 
     return {
         "weather_results": "\n".join(lines),
+        "weather_data": weather_data,
         "messages": [
             AIMessage(
                 content="Weather information fetched"
@@ -486,8 +584,10 @@ async def run_travel_agent(user_input: str, thread_id: str | None = None):
             ],
             "user_query": user_input,
             "flight_results": "",
+            "flight_data": None,
             "hotel_results": "",
             "weather_results": "",
+            "weather_data": None,
             "itinerary": "",
             "llm_calls": 0
         },
@@ -500,8 +600,10 @@ async def run_travel_agent(user_input: str, thread_id: str | None = None):
         "thread_id": thread_id,
         "answer": final_answer,
         "flight_results": result.get("flight_results", ""),
+        "flight_data": result.get("flight_data"),
         "hotel_results": result.get("hotel_results", ""),
         "weather_results": result.get("weather_results", ""),
+        "weather_data": result.get("weather_data"),
         "itinerary": result.get("itinerary", ""),
         "llm_calls": result.get("llm_calls", 0),
     }
