@@ -65,10 +65,85 @@ def _subprocess_env(**updates: str | None) -> dict[str, str]:
 # LLM
 # =========================================================
 
+# Groq's current on-demand GPT-OSS-20B limit is 8K TPM.  The application
+# can assemble large MCP/search contexts, so protect every ChatGroq instance
+# from accidentally requesting an oversized context.  This is deliberately
+# installed at the class level because backend.py creates its own ChatGroq
+# instance independently of this module.
+_ORIGINAL_CHATGROQ_INVOKE = ChatGroq.invoke
+_SAFE_CONTEXT_CHARS = 20000
+_SAFE_MAX_OUTPUT_TOKENS = 1200
+
+
+def _clip_llm_content(content: Any, limit: int = _SAFE_CONTEXT_CHARS) -> Any:
+    """Keep large retrieved contexts bounded while preserving both ends."""
+    if not isinstance(content, str) or len(content) <= limit:
+        return content
+
+    head = int(limit * 0.72)
+    tail = limit - head
+    return (
+        content[:head]
+        + "\n\n[Context trimmed to stay within the model's request budget. "
+        "Prefer the most relevant information above.]\n\n"
+        + content[-tail:]
+    )
+
+
+def _safe_chatgroq_invoke(self, input, config=None, *, stop=None, **kwargs):
+    """Bound prompt size and completion budget before calling Groq."""
+    try:
+        if isinstance(input, list):
+            trimmed_input = []
+            for message in input:
+                if hasattr(message, "content"):
+                    try:
+                        message = message.model_copy(deep=True)
+                        message.content = _clip_llm_content(message.content)
+                    except Exception:
+                        # Fall back to the original message if a custom message
+                        # type cannot be copied.
+                        pass
+                trimmed_input.append(message)
+            input = trimmed_input
+        elif isinstance(input, str):
+            input = _clip_llm_content(input)
+
+        # Do not override an explicit caller value, but cap the default output
+        # budget so input + output stays comfortably below the 8K TPM ceiling.
+        if "max_tokens" not in kwargs:
+            kwargs["max_tokens"] = _SAFE_MAX_OUTPUT_TOKENS
+
+        return _ORIGINAL_CHATGROQ_INVOKE(
+            self,
+            input,
+            config=config,
+            stop=stop,
+            **kwargs,
+        )
+    except TypeError:
+        # Older LangChain versions may reject max_tokens through invoke kwargs.
+        kwargs.pop("max_tokens", None)
+        return _ORIGINAL_CHATGROQ_INVOKE(
+            self,
+            input,
+            config=config,
+            stop=stop,
+            **kwargs,
+        )
+
+
+# Install once; re-imports of mcp_client must not wrap the method repeatedly.
+if not getattr(ChatGroq, "_shogun_safe_invoke", False):
+    ChatGroq.invoke = _safe_chatgroq_invoke
+    ChatGroq._shogun_safe_invoke = True
+
+
 llm = ChatGroq(
     model="openai/gpt-oss-20b",
     temperature=0,
     api_key=os.getenv("GROQ_API_KEY"),
+    max_tokens=_SAFE_MAX_OUTPUT_TOKENS,
 )
 
 
