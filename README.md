@@ -1,302 +1,400 @@
 # 🏯 Shogun — Multi-Agent Travel Intelligence
 
-> **One request. Multiple specialized agents. Explicit orchestration. Human-approved travel plans.**
+> **One request. Multiple specialist agents. Explicit orchestration. Human-in-the-loop travel planning.**
 
-Shogun is an AI-powered travel planning system built around **LangGraph, Model Context Protocol (MCP), FastAPI, Groq, PostgreSQL, and external travel intelligence services**.
+Shogun is an AI-powered travel planning application that uses **LangGraph, LangChain, MCP, FastAPI, Groq, PostgreSQL, and external travel APIs** to turn natural-language travel requests into focused travel intelligence.
 
-Instead of sending every request through one monolithic prompt, Shogun routes work through specialized agents for **flights, hotels, weather, budgets, and itinerary generation**, with a supervisor deciding which agents are actually required.
-
-The system also includes **input guardrails, deterministic routing checks, persistent LangGraph state, human-in-the-loop approval, and LLM context protection** for reliable execution under model token limits.
+Instead of sending every request through one large prompt, Shogun uses a **Supervisor Agent** to determine which specialist agents are actually required. The system can work with flights, hotels, weather, budgets, and complete itineraries while keeping focused requests focused.
 
 ---
 
-## ✨ What is Shogun?
+## ✨ Highlights
 
-Planning a trip normally means jumping between multiple services:
+- 🧠 **Supervisor-based agent routing** — selects only the agents needed for the request.
+- 🛡️ **Input guardrail** — validates that requests belong to the travel domain and can block clearly unrelated or harmful requests.
+- ✈️ **Flight intelligence** — integrates AviationStack through MCP for aviation and airport information.
+- 🏨 **Hotel research** — uses Tavily MCP for web-based accommodation research.
+- 🌤️ **Weather intelligence** — uses a custom MCP server backed by OpenWeather.
+- 💰 **Budget analysis** — evaluates estimated costs, budget risks, and saving opportunities.
+- 🗺️ **Itinerary generation** — creates a complete draft only when an itinerary or full trip plan is requested.
+- 👤 **Human-in-the-loop approval** — pauses before finalizing an itinerary so the user can approve or request revisions.
+- 💾 **Persistent workflow state** — PostgreSQL checkpointing keeps LangGraph threads resumable.
+- 🧠 **LLM context protection** — bounds large MCP/search contexts before they reach Groq.
+- 🖥️ **Command-center style frontend** — displays the agent pipeline, results, approval workflow, and previous sessions.
+- 📄 **Result export support** — the frontend includes a PDF export action for generated travel results.
 
-* ✈️ Search for flights
-* 🏨 Research hotels
-* 🌤️ Check weather
-* 💰 Estimate the budget
-* 🗺️ Build an itinerary
-* 📝 Combine the useful information into one response
+---
 
-Shogun brings these capabilities into one AI-driven workflow.
+## 🎯 What Problem Does Shogun Solve?
 
-A user can provide a natural-language request such as:
+Travel planning often requires switching between several services:
 
 ```text
-Plan a 7-day trip from Delhi to Tokyo for two people
-including flights, hotels, sightseeing and weather information.
+Flights → Hotels → Weather → Budget → Sightseeing → Itinerary
 ```
 
-The system determines which specialist agents are needed, gathers external information through MCP, creates an itinerary when requested, pauses for human approval, and then produces the final travel response.
-
----
-
-## 🧠 Architecture
-
-```mermaid
-flowchart TD
-
-    U["👤 User"] --> F["🖥️ Web Interface"]
-    F --> API["⚡ FastAPI"]
-    API --> G["🧠 LangGraph Supervisor"]
-
-    G --> GR["🛡️ Input Guardrail"]
-    GR --> FA["✈️ Flight Agent"]
-    GR --> HA["🏨 Hotel Agent"]
-    GR --> WA["🌤️ Weather Agent"]
-    GR --> BA["💰 Budget Agent"]
-    GR --> IA["🗺️ Itinerary Agent"]
-
-    FA --> ASM["AviationStack MCP"]
-    HA --> TM["Tavily MCP"]
-    WA --> WM["Custom Weather MCP"]
-
-    ASM --> EXT1["AviationStack"]
-    TM --> EXT2["Tavily"]
-    WM --> EXT3["OpenWeather"]
-
-    FA --> IA
-    HA --> IA
-    WA --> IA
-    BA --> IA
-
-    IA --> HITL["👤 Human Approval"]
-    HITL --> FR["🎖️ Final Agent"]
-    FR --> SAFE["🧠 Safe LLM Context Layer"]
-    SAFE --> GROQ["Groq — GPT-OSS-20B"]
-    GROQ --> F
-
-    G -. "Persistent state" .-> PG["🐘 PostgreSQL"]
-    HITL -. "Resume thread" .-> PG
-```
-
-### Request lifecycle
-
-```text
-User Request
-     │
-     ▼
-FastAPI
-     │
-     ▼
-LangGraph Supervisor
-     │
-     ├──► Input Guardrail
-     │
-     ├──► Flight Agent ──► AviationStack MCP
-     │
-     ├──► Hotel Agent ───► Tavily MCP
-     │
-     ├──► Weather Agent ─► Custom Weather MCP
-     │
-     └──► Budget Agent
-                  │
-                  ▼
-          Itinerary Agent
-                  │
-                  ▼
-          Human Approval
-             │         │
-          Approve    Revise
-             │         │
-             └────┬────┘
-                  ▼
-             Final Agent
-                  │
-                  ▼
-          Safe LLM Context
-                  │
-                  ▼
-            Groq GPT-OSS-20B
-                  │
-                  ▼
-          Travel Response
-```
-
-> **Important:** Not every request runs every agent. The supervisor routes only the specialists required for the user's request.
-
----
-
-## 🤖 Multi-Agent System
-
-### 🧠 Supervisor Agent
-
-The Supervisor is the main routing layer. It determines which specialist agents are required for the user's specific request and extracts structured trip constraints such as:
-
-* Origin
-* Destination
-* Duration
-* Budget
-* Travel style
-* Special preferences
-
-The supervisor uses narrow routing rules so a focused request such as a flight query does not unnecessarily trigger hotel, weather, budget, or itinerary agents.
+Shogun brings these steps into a single orchestrated workflow.
 
 For example:
 
 ```text
+User:
 "Find me a flight from Delhi to Tokyo"
+
+Supervisor:
         ↓
-ONLY flight_agent
+flight_agent only
+        ↓
+AviationStack MCP
+        ↓
+Focused flight response
 ```
 
-while:
+A more complete request can activate the broader workflow:
 
 ```text
-"Plan a complete 7-day trip from Delhi to Tokyo"
+User:
+"Plan a 7-day trip from Jaipur to Tokyo for two people,
+including flights, hotels, sightseeing and weather."
+
+        ↓
+Supervisor
         ↓
 Flight + Hotel + Weather + Budget + Itinerary
+        ↓
+Human Approval
+        ↓
+Final Agent
+        ↓
+Complete travel response
+```
+
+The important design principle is that **not every request runs every agent**.
+
+---
+
+# 🧠 Architecture
+
+```mermaid
+flowchart TD
+
+    U["👤 User"] --> UI["🖥️ Shogun Web UI"]
+    UI --> API["⚡ FastAPI"]
+    API --> SG["🧠 LangGraph"]
+
+    SG --> G["🛡️ Guardrail + Supervisor"]
+
+    G --> F["✈️ Flight Agent"]
+    G --> H["🏨 Hotel Agent"]
+    G --> W["🌤️ Weather Agent"]
+    G --> B["💰 Budget Agent"]
+    G --> I["🗺️ Itinerary Agent"]
+
+    F --> AMCP["AviationStack MCP"]
+    H --> TMCP["Tavily MCP"]
+    W --> WMCP["Custom Weather MCP"]
+
+    AMCP --> AS["AviationStack API"]
+    TMCP --> TV["Tavily Search"]
+    WMCP --> OW["OpenWeather API"]
+
+    F --> I
+    H --> I
+    W --> I
+    B --> I
+
+    I --> HITL["👤 Human Approval"]
+    HITL --> FA["🎖️ Final Agent"]
+
+    FA --> SAFE["🛡️ Safe LLM Context Layer"]
+    SAFE --> GROQ["Groq · GPT-OSS-20B"]
+    GROQ --> UI
+
+    SG -. "Checkpointed state" .-> PG["🐘 PostgreSQL"]
+    HITL -. "Resume thread" .-> PG
+```
+
+### Core execution flow
+
+```text
+                         ┌──────────────────┐
+                         │    User Request  │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                         ┌──────────────────┐
+                         │     FastAPI      │
+                         └────────┬─────────┘
+                                  │
+                                  ▼
+                    ┌──────────────────────────┐
+                    │ LangGraph Supervisor     │
+                    │ + Input Guardrail        │
+                    └────────────┬─────────────┘
+                                 │
+                  ┌──────────────┼──────────────┐
+                  ▼              ▼              ▼
+             Flight Agent   Hotel Agent   Weather Agent
+                  │              │              │
+                  ▼              ▼              ▼
+               Aviation        Tavily       OpenWeather
+                 MCP             MCP         Weather MCP
+                  │              │              │
+                  └──────────────┼──────────────┘
+                                 ▼
+                          Budget Agent
+                                 │
+                                 ▼
+                         Itinerary Agent
+                                 │
+                                 ▼
+                         Human Approval
+                            │         │
+                         Approve    Revise
+                            │         │
+                            └────┬────┘
+                                 ▼
+                           Final Agent
+                                 │
+                                 ▼
+                         Groq GPT-OSS-20B
+                                 │
+                                 ▼
+                           Web Interface
 ```
 
 ---
 
-### 🛡️ Input Guardrail
+# 🤖 Agent System
 
-Before routing, Shogun checks whether the request belongs to travel planning or travel information.
+## 🧠 Supervisor Agent
 
-Clearly unrelated or harmful/illegal requests can be blocked before specialist agents execute.
+The Supervisor is responsible for understanding the user's request and selecting the required specialist agents.
 
-The guardrail is deliberately isolated from the specialist workflow so a guardrail failure can fall back safely rather than preventing valid travel requests from proceeding.
+It extracts structured trip constraints including:
 
----
+- Origin
+- Destination
+- Duration
+- Budget
+- Travel style
+- Special preferences
 
-### ✈️ Flight Agent
+The supervisor is deliberately instructed to avoid unnecessary agents.
 
-The Flight Agent communicates with the AviationStack MCP server and retrieves aviation-related information such as airport and airline data.
+For example:
 
-The retrieved information is then converted into focused flight guidance by the LLM.
+| User request | Agents selected |
+| --- | --- |
+| Flight from Delhi to Tokyo | Flight Agent |
+| Hotels in Tokyo | Hotel Agent |
+| Weather in Tokyo | Weather Agent |
+| Budget for a Tokyo trip | Budget Agent |
+| Complete Tokyo trip plan | Flight + Hotel + Weather + Budget + Itinerary |
 
-The agent is instructed not to fabricate live fares and not to silently turn an ambiguous destination such as `USA` into a specific city.
-
----
-
-### 🏨 Hotel Agent
-
-The Hotel Agent uses the Tavily MCP server to search the web for accommodation information relevant to the user's request.
-
-The MCP server is loaded only when the hotel agent needs it, keeping unrelated integrations isolated.
-
----
-
-### 🌤️ Weather Agent
-
-The Weather Agent extracts the destination and communicates with the custom Weather MCP server.
-
-It can retrieve:
-
-* Current weather
-* Forecast information
-
-The resulting information can be used by the itinerary stage when an itinerary is requested.
+If the LLM supervisor cannot produce valid routing JSON, Shogun has a deterministic fallback router based on the request intent.
 
 ---
 
-### 💰 Budget Agent
+## 🛡️ Input Guardrail
 
-The Budget Agent evaluates the trip against the user's stated budget and the information gathered by other selected agents.
+Before specialist agents execute, the request passes through a travel-domain guardrail.
+
+Valid requests can cover topics such as:
+
+- Destinations
+- Flights
+- Hotels
+- Weather
+- Budgets
+- Transportation
+- Sightseeing
+- Food
+- Packing
+- Itineraries
+- Visa and travel information
+
+Clearly unrelated requests and requests asking for harmful or illegal instructions can be blocked.
+
+The guardrail also has a safe fallback so a guardrail parsing failure does not automatically prevent a valid travel request from continuing.
+
+---
+
+## ✈️ Flight Agent
+
+The Flight Agent communicates with the **AviationStack MCP server**.
+
+It retrieves aviation-related information such as:
+
+- Airport information
+- Airline information
+- Route-related aviation context
+
+The agent is intentionally constrained to flight-related questions and does not generate unrelated hotel, weather, budget, or itinerary sections.
+
+### Destination safety
+
+Shogun includes a deterministic check for ambiguous U.S. destinations.
+
+For example:
+
+```text
+"Find me a flight from Delhi to USA"
+```
+
+does **not** silently become New York/JFK.
+
+Instead, the system asks the user to specify a U.S. city or airport.
+
+The flight agent also avoids claiming a fare is the **cheapest** or live when the connected data does not reliably provide live ticket pricing.
+
+---
+
+## 🏨 Hotel Agent
+
+The Hotel Agent uses **Tavily MCP** for web research related to accommodation.
+
+The MCP client loads the Tavily server when the hotel workflow requires it rather than forcing every request through every external integration.
+
+---
+
+## 🌤️ Weather Agent
+
+The Weather Agent first extracts the destination and then communicates with the custom weather MCP server.
+
+The custom server exposes:
+
+```text
+get_current_weather(city)
+get_forecast(city)
+```
+
+The server calls **OpenWeather** and returns structured weather information such as temperature, feels-like temperature, humidity, wind, conditions, and forecast entries.
+
+---
+
+## 💰 Budget Agent
+
+The Budget Agent analyzes the trip against the user's stated budget and available travel information.
 
 It can provide:
 
-* Estimated cost categories
-* Budget risk areas
-* Money-saving suggestions
-* Overall feasibility
+1. Estimated cost categories
+2. Budget risk areas
+3. Money-saving suggestions
+4. Overall feasibility
 
-Estimates are explicitly treated as estimates when reliable live pricing is unavailable.
-
----
-
-### 🗺️ Itinerary Agent
-
-The Itinerary Agent is activated only when an itinerary or complete travel plan is requested.
-
-It combines the relevant state gathered by the preceding agents and produces a draft itinerary suitable for human review.
+When exact live pricing is unavailable, the system treats costs as estimates rather than presenting them as confirmed prices.
 
 ---
 
-### 👤 Human-in-the-Loop Approval
+## 🗺️ Itinerary Agent
 
-When an itinerary is generated, Shogun pauses the LangGraph workflow using an interrupt and presents the draft to the user.
+The Itinerary Agent is activated when the user asks for an itinerary, day-by-day plan, complete trip, or broader travel plan.
 
-The user can:
+It combines relevant information from the selected agents and creates a draft itinerary for review.
 
-* ✅ Approve the itinerary
-* ✏️ Reject it and provide revision feedback
-
-The workflow is persisted using PostgreSQL checkpointing and can resume from the same `thread_id` after the human decision.
-
-This makes human approval an actual workflow state rather than a frontend-only confirmation.
-
----
-
-### 🎖️ Final Agent
-
-After the workflow reaches finalization, the Final Agent synthesizes the relevant selected-agent results into a focused response.
-
-It is instructed to:
-
-* Answer only what the user asked
-* Avoid unrelated travel sections
-* Respect the selected-agent set
-* Return one option when one option was requested
-* Distinguish estimates from live pricing
-* Preserve approved itinerary decisions
-
----
-
-## 🛡️ LLM Context Protection
-
-External MCP and search results can become large enough to exceed the model's request budget.
-
-Shogun therefore includes a safety layer around `ChatGroq` calls that:
-
-* Bounds oversized text contexts before they reach the model
-* Preserves both the beginning and end of large retrieved content
-* Applies a conservative default completion budget
-* Protects LLM calls across the application, including the independently created LLM instance in `backend.py`
-
-This prevents a large MCP/search context from accidentally causing the application to exceed its configured model request limits.
-
-The protection is particularly important for the human-approval flow because the finalization step can otherwise receive a large combination of itinerary, search, flight, hotel, weather, and budget context.
-
----
-
-# 🔌 MCP Integration
-
-A core part of Shogun is its use of the **Model Context Protocol (MCP)**.
-
-Instead of hard-coding every external integration directly into the application, Shogun communicates with MCP servers through a common tool interface.
-
-### MCP services
-
-| MCP Server | Purpose |
-| --- | --- |
-| 🔎 Tavily MCP | Web search and travel research |
-| ✈️ AviationStack MCP | Aviation and airport information |
-| 🌤️ Custom Weather MCP | Current weather and forecasts |
-
-The MCP client loads the requested server and discovers its available tools dynamically.
-
-Expected tool names include:
+A focused query such as:
 
 ```text
-tavily_search
-get_current_weather
-get_forecast
+"What is the weather in Tokyo?"
 ```
 
-AviationStack tools are discovered dynamically from the configured MCP server.
+does not need to generate a complete itinerary.
 
 ---
 
-# 🧠 Why LangGraph?
+# 👤 Human-in-the-Loop
 
-LangGraph provides the orchestration layer for Shogun.
+One of Shogun's main workflow features is explicit human approval.
 
-The workflow is represented explicitly as a graph instead of hiding the complete application inside a single LLM call.
+When an itinerary is generated, the LangGraph workflow pauses using `interrupt()`.
+
+The frontend displays the draft and allows the user to:
+
+- ✅ Approve the itinerary
+- ✏️ Reject it and provide revision feedback
+
+The workflow is associated with a persistent `thread_id`.
+
+After the user responds, the application resumes the same LangGraph thread using a `Command(resume=...)` call.
+
+This makes approval a real workflow state rather than a visual frontend confirmation.
+
+### Approval flow
+
+```text
+Itinerary Agent
+       │
+       ▼
+  Draft Itinerary
+       │
+       ▼
+ Human Approval
+    │       │
+    │       └───────────────┐
+    ▼                       ▼
+ Approve                  Revise
+    │                       │
+    │                 Human Feedback
+    │                       │
+    └───────────┬───────────┘
+                ▼
+           Final Agent
+```
+
+---
+
+# 🛡️ LLM Context Protection
+
+MCP and web-search responses can become large. Passing too much retrieved content into an LLM request can exceed the model's request/token budget.
+
+Shogun therefore includes a safety layer around `ChatGroq` invocation that:
+
+- Bounds oversized text contexts before sending them to the model
+- Preserves both the beginning and end of large contexts
+- Applies a conservative default completion budget
+- Protects the independently created `ChatGroq` instance used by the backend
+
+The current implementation uses a bounded text context and a default completion budget of **1200 tokens**.
+
+This is especially useful for workflows where several specialist outputs are combined before final synthesis.
+
+> This layer is a request-size safeguard, not a replacement for proper context summarization. Future versions can further reduce token usage by summarizing MCP results before passing them between agents.
+
+---
+
+# 🔌 Model Context Protocol (MCP)
+
+MCP is used as the integration layer between Shogun and external tools/services.
+
+### Connected MCP services
+
+| MCP server | Transport | Purpose |
+| --- | --- | --- |
+| **Tavily MCP** | Streamable HTTP | Web/travel research |
+| **AviationStack MCP** | stdio via `uvx` | Aviation information |
+| **Custom Weather MCP** | stdio | Weather + forecast via OpenWeather |
+
+The MCP client dynamically loads tools from the server that is required by the current agent.
+
+This keeps external integrations modular and allows individual servers to fail without necessarily breaking unrelated workflows.
+
+---
+
+# 🧩 Why LangGraph?
+
+LangGraph is used because the application is a **stateful workflow**, not simply a single LLM prompt.
+
+The graph needs to support:
+
+- Conditional agent routing
+- Shared workflow state
+- Multiple specialist stages
+- Human interruption
+- Workflow resumption
+- Persistent checkpoints
+- Deterministic routing safeguards
 
 Conceptually:
 
@@ -304,45 +402,68 @@ Conceptually:
 START
   │
   ▼
-Supervisor + Guardrail
+Supervisor
   │
-  ├──► Selected Specialist Agents
-  │
-  ▼
-Itinerary Agent (when required)
-  │
-  ▼
-Human Approval
-  │
-  ▼
-Final Agent
-  │
-  ▼
-END
+  ├── Flight
+  ├── Hotel
+  ├── Weather
+  ├── Budget
+  └── Itinerary (when required)
+              │
+              ▼
+       Human Approval
+              │
+              ▼
+         Final Agent
+              │
+              ▼
+             END
 ```
-
-This makes the system easier to debug, extend, test, and reason about.
 
 ---
 
-# ⚡ Tech Stack
+# 💾 Persistence
 
-| Technology | Role |
-| --- | --- |
-| **Python** | Core application language |
-| **FastAPI** | Backend API and web server |
-| **LangGraph** | Multi-agent workflow orchestration |
-| **LangChain** | LLM and tool integration |
-| **Groq / GPT-OSS-20B** | LLM used for routing, specialist reasoning, and synthesis |
-| **MCP** | External tool/server integration |
-| **Tavily** | Web search |
-| **AviationStack** | Aviation information |
-| **OpenWeather** | Weather information |
-| **PostgreSQL** | Persistent LangGraph checkpoint storage |
-| **Psycopg** | PostgreSQL connectivity |
-| **HTML / CSS / JavaScript** | Frontend |
-| **Uvicorn** | ASGI server |
-| **Docker** | Containerization |
+Shogun uses **PostgreSQL** with LangGraph's PostgreSQL checkpointing support.
+
+Each workflow is associated with a `thread_id`.
+
+The same thread is used when an itinerary is paused for approval and later resumed.
+
+This allows the system to retain workflow state across the human-in-the-loop boundary.
+
+---
+
+# 🖥️ Frontend
+
+The frontend is a custom Japanese/Shogun-inspired command center built with HTML, CSS, and JavaScript.
+
+### Main interface features
+
+- Mission planning form
+- Destination, travel date, traveler count, and trip-style inputs
+- Optional free-form trip details
+- Quick example requests
+- Animated agent pipeline
+- Supervisor and specialist status display
+- Focused result panels
+- Flight information cards when structured flight data is available
+- Weather cards and forecast presentation
+- Hotel and itinerary result panels
+- Human approval controls
+- Revision feedback input
+- Previous campaign/session history
+- Reopen previous results
+- New campaign/reset action
+- PDF export action
+- Responsive interface
+
+The frontend communicates with the FastAPI backend through:
+
+```text
+POST /api/travel
+POST /api/travel/approve
+```
 
 ---
 
@@ -351,96 +472,91 @@ This makes the system easier to debug, extend, test, and reason about.
 ```text
 Shogun-using-MCP/
 │
-├── app.py                         # FastAPI application + API endpoints
-├── backend.py                     # LangGraph state, agents and orchestration
-├── mcp_client.py                  # MCP servers, tools and LLM safety layer
-├── mcp_customserver.py            # Custom weather MCP server
-│
-├── tools/
-│   ├── flight_tool.py
-│   └── tavily_tool.py
-│
-├── utils/
-│   └── pdf_export.py
+├── app.py                    # FastAPI application and API endpoints
+├── backend.py                # LangGraph state, routing, agents and workflow
+├── mcp_client.py             # MCP client, integrations and LLM safety layer
+├── mcp_customserver.py       # Custom OpenWeather MCP server
 │
 ├── templates/
-│   └── index.html
+│   └── index.html             # Main frontend page
 │
 ├── static/
-│   ├── style.css
-│   └── script.js
+│   ├── script.js              # Frontend controller
+│   ├── script-core.js         # Frontend compatibility/core loader
+│   └── style.css              # Shogun interface styling
 │
-├── test.py
-├── requirements.txt
-├── package.json
+├── utils/
+│   └── pdf_export.py          # PDF export utilities
+│
+├── .claude/                   # Claude/project configuration
+├── Dockerfile                 # Container configuration
+├── requirements.txt            # Python dependencies
+├── package.json                # Frontend dependency metadata
 ├── package-lock.json
-├── Dockerfile
-├── .dockerignore
+├── test.py                     # Project test/diagnostic entry point
+├── LICENSE
 ├── .gitignore
 └── README.md
 ```
 
 ---
 
-# 🔄 Example Workflow
+# ⚙️ Tech Stack
 
-Suppose the user enters:
-
-```text
-Plan a 7-day trip from Delhi to Tokyo for two people
-with flights, hotels, sightseeing and weather information.
-```
-
-### Step 1 — Request
-
-The browser sends the request to:
-
-```text
-POST /api/travel
-```
-
-### Step 2 — Input validation
-
-FastAPI validates the request and forwards it to the LangGraph orchestration layer.
-
-### Step 3 — Guardrail and Supervisor
-
-The guardrail validates that the request is appropriate for the travel application.
-
-The supervisor determines the required specialist agents and extracts trip constraints.
-
-### Step 4 — Specialist agents
-
-The selected agents gather the relevant information:
-
-```text
-Flight Agent  → AviationStack MCP
-Hotel Agent   → Tavily MCP
-Weather Agent → Weather MCP
-Budget Agent  → LLM analysis
-```
-
-### Step 5 — Itinerary generation
-
-Because the request asks for a complete trip plan, the Itinerary Agent combines the relevant information into a draft.
-
-### Step 6 — Human approval
-
-The workflow pauses and displays the draft itinerary.
-
-The user can approve the draft or provide revision feedback.
-
-### Step 7 — Finalization
-
-After approval, the workflow resumes from the persisted LangGraph checkpoint and produces the final response.
-
-### Step 8 — Frontend
-
-The final result is returned to the web interface for presentation.
+| Technology | Purpose |
+| --- | --- |
+| **Python 3.11** | Application runtime |
+| **FastAPI** | Backend API and web server |
+| **LangGraph** | Stateful multi-agent orchestration |
+| **LangChain** | LLM and application integration |
+| **Groq** | LLM inference |
+| **GPT-OSS-20B** | Current configured Groq model |
+| **MCP** | External tool integration |
+| **Tavily** | Web search |
+| **AviationStack** | Aviation information |
+| **OpenWeather** | Weather information |
+| **PostgreSQL** | LangGraph checkpoint persistence |
+| **Psycopg** | PostgreSQL connection |
+| **Jinja2** | HTML templating |
+| **Uvicorn** | ASGI server |
+| **HTML/CSS/JavaScript** | Frontend |
+| **Docker** | Containerization |
 
 ---
 
-# 💻 Local Setup
+# 🔐 Environment Variables
+
+Create a `.env` file in the project root:
+
+```env
+GROQ_API_KEY=your_groq_api_key
+TAVILY_API_KEY=your_tavily_api_key
+AVIATIONSTACK_API_KEY=your_aviationstack_api_key
+OPENWEATHER_API_KEY=your_openweather_api_key
+DATABASE_URL=your_postgresql_connection_string
+```
+
+The MCP client accepts both of these AviationStack variable names:
+
+```env
+AVIATIONSTACK_API_KEY=your_key
+```
+
+or:
+
+```env
+AVIATION_STACK_API_KEY=your_key
+```
+
+### ⚠️ Keep credentials private
+
+Do not commit `.env` or API keys to GitHub.
+
+For a public repository, consider adding a `.env.example` containing placeholder values only.
+
+---
+
+# 🚀 Local Setup
 
 ## 1. Clone the repository
 
@@ -449,86 +565,60 @@ git clone https://github.com/Ravisidh36/Shogun-using-MCP.git
 cd Shogun-using-MCP
 ```
 
----
-
 ## 2. Create a virtual environment
 
 ### Windows
 
 ```powershell
 python -m venv .venv
-```
-
-Activate it:
-
-```powershell
 .venv\Scripts\activate
 ```
 
----
+### macOS / Linux
 
-## 3. Install Python dependencies
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+## 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
 ## 4. Install `uv`
 
 AviationStack MCP is launched through `uvx`.
-
-Install `uv`:
 
 ```bash
 pip install uv
 ```
 
-Verify:
+Verify the installation:
 
 ```bash
 uv --version
 uvx --version
 ```
 
----
+## 5. Configure environment variables
 
-# 🔐 Environment Variables
+Create `.env` and add the required API keys and PostgreSQL connection string.
 
-Create a `.env` file in the project root.
-
-```env
-GROQ_API_KEY=your_groq_key
-TAVILY_API_KEY=your_tavily_key
-AVIATIONSTACK_API_KEY=your_aviationstack_key
-OPENWEATHER_API_KEY=your_openweather_key
-DATABASE_URL=your_postgresql_connection_string
-```
-
-### Never commit `.env`
-
-Your API keys should remain private.
-
-If you want to document required variables without exposing credentials, use a `.env.example` file.
-
----
-
-# ▶️ Running Shogun
-
-Start the application with:
+## 6. Start the application
 
 ```bash
 python app.py
 ```
 
-The FastAPI server runs locally at:
+The application will be available at:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-API documentation:
+FastAPI documentation:
 
 ```text
 http://127.0.0.1:8000/docs
@@ -542,25 +632,37 @@ http://127.0.0.1:8000/health
 
 ---
 
-# 🧪 Testing
+# 🐳 Docker
 
-The repository includes `test.py` for validating core functionality.
+The repository includes a Dockerfile based on Python 3.11.
 
-Run:
+Build the image:
 
 ```bash
-python test.py
+docker build -t shogun-travel .
 ```
 
-The MCP client also provides diagnostics for checking configured MCP servers and their available tools.
+Run it:
+
+```bash
+docker run --env-file .env -p 8000:8000 shogun-travel
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The container starts the FastAPI application with Uvicorn on port `8000`.
 
 ---
 
-# 📡 API
+# 📡 API Reference
 
 ## `GET /`
 
-Serves the Shogun web interface.
+Returns the Shogun web interface.
 
 ---
 
@@ -568,31 +670,70 @@ Serves the Shogun web interface.
 
 Returns the application health status and enabled workflow features.
 
+Example:
+
+```json
+{
+  "status": "ok",
+  "message": "TripMate AI API is running",
+  "features": [
+    "supervisor_agent",
+    "input_guardrail",
+    "human_in_the_loop",
+    "budget_agent"
+  ]
+}
+```
+
 ---
 
 ## `POST /api/travel`
 
-Starts a travel-planning workflow.
+Starts a new travel-planning workflow or continues a workflow when a `thread_id` is supplied.
 
 ### Request
 
 ```json
 {
-  "message": "Plan a 7 day trip to Tokyo for two people",
+  "message": "Plan a 7 day trip from Jaipur to Tokyo for two people",
   "thread_id": null
 }
 ```
 
+### Important behavior
+
+The backend normalizes the free-form request before sending it to the LangGraph workflow. If the frontend contains stale structured values but the user enters a focused instruction such as a flight request in the free-form field, the focused instruction is preferred.
+
 ### Response
 
-The endpoint returns the current workflow result, selected agents, trip constraints, generated specialist results, and `thread_id`.
+The response can contain:
 
-If an itinerary requires human approval, the response includes:
+```json
+{
+  "success": true,
+  "thread_id": "...",
+  "answer": "...",
+  "requires_approval": false,
+  "selected_agents": ["flight_agent"],
+  "trip_constraints": {},
+  "flight_results": "...",
+  "hotel_results": "...",
+  "weather_results": "...",
+  "budget_results": "...",
+  "itinerary": "...",
+  "supervisor_reasoning": "...",
+  "guardrail_allowed": true,
+  "llm_calls": 1
+}
+```
+
+When an itinerary requires human review, the response includes:
 
 ```json
 {
   "requires_approval": true,
   "thread_id": "...",
+  "approval_request": "Please review the generated draft itinerary...",
   "itinerary": "..."
 }
 ```
@@ -601,7 +742,7 @@ If an itinerary requires human approval, the response includes:
 
 ## `POST /api/travel/approve`
 
-Resumes a paused workflow after human review.
+Resumes a paused workflow after the user reviews the itinerary.
 
 ### Approve
 
@@ -613,7 +754,7 @@ Resumes a paused workflow after human review.
 }
 ```
 
-### Request revision
+### Request a revision
 
 ```json
 {
@@ -623,157 +764,162 @@ Resumes a paused workflow after human review.
 }
 ```
 
-When rejecting a draft, revision feedback is required.
+When rejecting a draft, feedback is required.
 
 ---
 
-# 💾 Persistent State
+# 🧪 Testing and Diagnostics
 
-Shogun uses PostgreSQL together with LangGraph's PostgreSQL checkpointing support.
+The repository contains `test.py` for project-level checks.
 
-A `thread_id` identifies a travel-planning workflow. The same thread is used when the human approval endpoint resumes a paused workflow.
+Run:
 
-This allows the application to persist the workflow state across the human-in-the-loop boundary instead of restarting the entire planning process.
+```bash
+python test.py
+```
 
----
+The MCP client also includes a diagnostic helper that can independently test the configured Tavily, AviationStack, and Weather MCP servers.
 
-# 🎨 Frontend
-
-Shogun uses a custom command-center inspired interface built around the project's Japanese/Shogun theme.
-
-The interface includes:
-
-* Travel request console
-* Agent pipeline visualization
-* Flight intelligence
-* Hotel intelligence
-* Weather information
-* Budget/travel briefing
-* Draft itinerary
-* Human approval controls
-* Campaign/history views
-* Error and retry states
-
-Quick example requests can be dispatched directly from the interface, and free-form requests are sent to the FastAPI travel endpoint.
-
-The frontend is served directly through FastAPI using the project's `templates/` and `static/` directories.
+This is useful when debugging API keys, `uvx`, MCP connectivity, or the custom weather server.
 
 ---
 
-# 🧩 Design Philosophy
+# 🔄 Example End-to-End Workflow
 
-### Specialized agents over one giant prompt
+### User request
 
-Each agent has a focused responsibility. The supervisor prevents unnecessary agents from running for focused questions.
+```text
+Plan a 5-day trip from Jaipur to Bali for two people,
+including flights, hotels, weather and sightseeing.
+```
 
-This makes the system easier to:
+### 1. FastAPI
 
-* Debug
-* Extend
-* Test
-* Reason about
-* Replace individual integrations
+The browser sends the request to:
 
-### MCP for tool interoperability
+```text
+POST /api/travel
+```
 
-MCP provides a standardized interface between the application and external tool providers.
+### 2. Guardrail
 
-New capabilities can be integrated as MCP tools without redesigning the entire orchestration layer.
+The request is checked to ensure that it belongs to the supported travel domain.
 
-### Graph-based orchestration
+### 3. Supervisor
 
-LangGraph makes execution flow explicit and provides checkpointed state and interrupt/resume behavior for human approval.
+The Supervisor selects the required agents and extracts trip constraints.
 
-### Human approval as workflow state
+### 4. Specialist agents
 
-The approval step is part of the graph itself. A user decision can pause and resume the workflow through a persisted `thread_id`.
+```text
+Flight Agent   → AviationStack MCP
+Hotel Agent    → Tavily MCP
+Weather Agent  → Custom Weather MCP → OpenWeather
+Budget Agent   → Groq analysis
+```
 
-### Context-aware LLM usage
+### 5. Itinerary
 
-External search and MCP results can become large. Shogun bounds LLM context before invoking Groq so large tool responses do not unnecessarily consume the model's request budget.
+The Itinerary Agent combines the relevant results into a draft plan.
+
+### 6. Human review
+
+The graph pauses and the frontend presents the draft.
+
+```text
+Approve → continue
+Reject  → provide feedback → revise/finalize
+```
+
+### 7. Final response
+
+The Final Agent synthesizes the relevant information while following constraints such as:
+
+- Do not add unrelated sections
+- Respect the selected-agent set
+- Preserve approved itinerary decisions
+- Do not invent live prices
+- Do not call an option "cheapest" without reliable pricing support
+- Return exactly one option when the user requests one
+
+---
+
+# 🧱 Design Principles
+
+### 1. Explicit orchestration
+
+Agent behavior is represented in a LangGraph state machine rather than hidden inside one giant prompt.
+
+### 2. Narrow routing
+
+Focused questions should activate focused agents.
+
+### 3. Deterministic safeguards
+
+High-impact assumptions, such as converting `USA` into a particular city, are protected by deterministic logic rather than relying entirely on the LLM.
+
+### 4. Tool isolation
+
+MCP servers are loaded according to the current agent's needs.
+
+### 5. Human control
+
+Itinerary generation includes a genuine approval checkpoint before finalization.
+
+### 6. Persistent state
+
+PostgreSQL checkpointing allows workflows to pause and resume using a stable `thread_id`.
+
+### 7. Context awareness
+
+Large external results are bounded before they are sent to the LLM to reduce request-size failures.
 
 ---
 
 # ⚠️ Current Limitations
 
-Shogun is an active project and some integrations are still evolving.
-
-### Flight intelligence
-
-The current Flight Agent uses AviationStack information together with LLM-generated travel guidance. It is not a complete airline booking engine or guaranteed live ticket-pricing system.
-
-### External API dependency
-
-Travel information depends on the availability, limits, and accuracy of external services such as Tavily, AviationStack, OpenWeather, and Groq.
-
-### Model request limits
-
-The application includes context-size protection, but Groq rate limits still depend on the configured model and service tier. Large workloads or high request volume can still be limited by the provider.
-
-### API credentials
-
-Running the complete system requires credentials for the configured external services.
-
-### Production deployment
-
-Additional hardening would be appropriate for production use, including stronger authentication, rate limiting, observability, secret management, and automated testing.
+- AviationStack integration provides aviation/airport information but should not be treated as a guaranteed source of live bookable ticket prices.
+- Hotel information depends on Tavily search availability and search quality.
+- Weather information depends on OpenWeather availability and API limits.
+- Groq request limits can still affect the application even with context protection.
+- Budget values are estimates unless reliable live pricing is available.
+- A PostgreSQL database is required for the configured checkpointing workflow.
+- `uvx` is required for the AviationStack MCP subprocess.
+- The current LLM context protection is a safety boundary; more aggressive result summarization/caching can further reduce token usage.
 
 ---
 
 # 🔮 Future Improvements
 
-Potential directions for Shogun include:
+Potential next steps include:
 
-* ✈️ Richer live flight search and structured flight results
-* 💳 More accurate fare and budget estimation
-* 🏨 Structured hotel comparison
-* 🌦️ More detailed weather-aware itinerary planning
-* ⚡ Parallel agent execution where appropriate
-* 🧠 Better result summarization before downstream LLM calls
-* 💾 Context-aware caching
-* 🔐 User authentication
-* 📊 Observability and agent tracing
-* 🧪 Expanded automated testing
-* ☁️ Production deployment
-* 📄 PDF travel-plan export
-* 🔌 Additional MCP integrations
+- 🔎 More precise live flight-price integrations
+- 🧾 Structured flight and hotel result normalization
+- 🧠 Dedicated context summarization between agents
+- ⚡ MCP result caching
+- 💾 Persistent travel history
+- 🔐 Stronger API validation and rate limiting
+- 🧪 Expanded unit and integration tests
+- 📊 Observability and agent-level tracing
+- 🌍 More travel data providers
+- 🚀 Production deployment configuration
 
 ---
 
-# 🌟 Why Shogun?
+# 📜 License
 
-Shogun explores what happens when **LLM reasoning, graph-based orchestration, standardized tool integration, persistent state, and human approval** are combined into a real application.
-
-The goal is not simply to ask an AI:
-
-> "Plan my trip."
-
-The goal is to build a system where specialized agents can **route work, gather information through external tools, pass relevant context through an explicit workflow, pause for human review, and collaborate toward a final travel response.**
+This project is released under the license included in the repository's `LICENSE` file.
 
 ---
 
-## 📌 Project Status
-
-**Active development**
-
-Shogun is currently being developed as a multi-agent AI travel-planning and experimentation platform for LangGraph + MCP architectures.
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License**.
-
----
-
-## 👨‍💻 Author
+# 👨‍💻 Author
 
 **Ravi Sidh**
 
-GitHub: [@Ravisidh36](https://github.com/Ravisidh36)
+GitHub: [Ravisidh36](https://github.com/Ravisidh36)
 
 ---
 
 <p align="center">
-  Built with Python · FastAPI · LangGraph · MCP · Groq · PostgreSQL
+  Built with Python · FastAPI · LangGraph · LangChain · MCP · Groq · PostgreSQL
 </p>
