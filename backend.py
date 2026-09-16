@@ -56,7 +56,7 @@ if not GROQ_API_KEY:
     raise ValueError("GROQ_API_KEY is missing. Please add it to your .env file.")
 
 # =========================
-# LLM - original model kept
+# LLM
 # =========================
 llm = ChatGroq(
     model="openai/gpt-oss-20b",
@@ -65,7 +65,7 @@ llm = ChatGroq(
 )
 
 # =========================
-# State - original fields kept, new control fields added
+# State
 # =========================
 class TravelState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], operator.add]
@@ -78,13 +78,13 @@ class TravelState(TypedDict, total=False):
     trip_constraints: dict[str, Any]
     supervisor_reasoning: str
 
-    # Original specialist results
+    # Specialist results
     flight_results: str
     hotel_results: str
     weather_results: str
     itinerary: str
 
-    # New budget + HITL state
+    # Budget + HITL state
     budget_results: str
     approval_request: str
     approved: bool
@@ -172,8 +172,6 @@ User request:
 {query}
 """
 
-    # Fail open on parser/model errors so a temporary JSON-format issue does not
-    # break the original travel-planning behavior.
     try:
         guardrail_raw = _llm_text(
             "You are the input guardrail for a travel-planning application. "
@@ -209,10 +207,11 @@ User request:
     supervisor_prompt = f"""
 You are the supervisor of a multi-agent travel-planning system.
 
-Your job is to determine EXACTLY which specialist agents are necessary
-to answer the user's request.
+Your job is to determine EXACTLY which specialist agents are necessary to answer
+THE USER'S SPECIFIC REQUEST.
 
 DO NOT select agents that are not needed.
+DO NOT create a full trip plan unless the user asks for one.
 
 Available agents:
 
@@ -221,8 +220,8 @@ Available agents:
   routes, flight duration, or booking advice.
 
 - hotel_agent:
-  Use for hotels, accommodation, hostels, resorts,
-  neighborhoods, or places to stay.
+  Use for hotels, accommodation, hostels, resorts, neighborhoods,
+  or places to stay.
 
 - weather_agent:
   Use for weather, climate, forecast, seasonal conditions,
@@ -241,60 +240,39 @@ Available agents:
   - sightseeing planning
   - a full travel plan combining multiple aspects
 
-IMPORTANT:
-
-If the user asks ONLY for a flight, select ONLY flight_agent.
-
-If the user asks ONLY for a hotel, select ONLY hotel_agent.
-
-If the user asks ONLY about weather, select ONLY weather_agent.
-
-If the user asks ONLY about budget/cost, select ONLY budget_agent.
-
-Do NOT add itinerary_agent just because the request mentions a destination.
+IMPORTANT ROUTING RULES:
+- Select ONLY agents whose output is directly needed to answer the user's request.
+- If the user asks ONLY for a flight, select ONLY flight_agent.
+- If the user asks ONLY for a hotel, select ONLY hotel_agent.
+- If the user asks ONLY about weather, select ONLY weather_agent.
+- If the user asks ONLY about budget/cost, select ONLY budget_agent.
+- Do NOT add itinerary_agent just because a destination is mentioned.
+- Do NOT add hotel, weather, budget, or itinerary agents unless the user asks for information that requires them.
+- If the user asks for ONE option, the downstream response should contain ONE option.
 
 Examples:
 
-User:
-"Find the cheapest flight from Delhi to Bali"
+User: "Find the cheapest flight from Delhi to Bali"
+Return: ["flight_agent"]
 
-Return:
-["flight_agent"]
+User: "What is the weather in Bali next week?"
+Return: ["weather_agent"]
 
-User:
-"What is the weather in Bali next week?"
+User: "Find me a hotel in Bali under $100"
+Return: ["hotel_agent"]
 
-Return:
-["weather_agent"]
+User: "How much would a 7 day Bali trip cost?"
+Return: ["budget_agent"]
 
-User:
-"Find me a hotel in Bali under $100"
+User: "Plan a 7 day trip to Bali including flights, hotels and sightseeing"
+Return: ["flight_agent", "hotel_agent", "weather_agent", "budget_agent", "itinerary_agent"]
 
-Return:
-["hotel_agent"]
-
-User:
-"How much would a 7 day Bali trip cost?"
-
-Return:
-["budget_agent"]
-
-User:
-"Plan a 7 day trip to Bali including flights, hotels and sightseeing"
-
-Return:
-["flight_agent", "hotel_agent", "weather_agent", "budget_agent", "itinerary_agent"]
-
-User:
-"Give me the cheapest flight and weather forecast for Bali"
-
-Return:
-["flight_agent", "weather_agent"]
+User: "Give me the cheapest flight and weather forecast for Bali"
+Return: ["flight_agent", "weather_agent"]
 
 Only select agents that contribute directly to answering the request.
 
 Return strict JSON only using this schema:
-
 {{
     "selected_agents": [],
     "trip_constraints": {{
@@ -309,7 +287,6 @@ Return strict JSON only using this schema:
 }}
 
 User request:
-
 {query}
 """
     try:
@@ -333,7 +310,7 @@ User request:
         llm_calls += 1
     except Exception as exc:
         print(f"Supervisor fallback used: {exc}")
-        # Original workflow behavior is preserved as the fallback.
+        # Keep the previous broad workflow only if supervisor parsing itself fails.
         selected_agents = AGENT_ORDER.copy()
         constraints = _empty_constraints()
         reasoning = (
@@ -366,7 +343,7 @@ def guardrail_blocked_agent(state: TravelState):
 
 
 # =========================
-# Flight Agent - original behavior kept
+# Flight Agent
 # =========================
 FLIGHT_AGENT_PROMPT = """
 You are a travel flight expert.
@@ -380,16 +357,21 @@ Airport Information:
 Airline Information:
 {airline_data}
 
-Generate:
-1. Likely departure airport
-2. Likely arrival airport
-3. Airlines serving this route
-4. Typical flight duration
-5. Estimated airfare range
-6. Peak season pricing warning
-7. Booking advice
+Answer ONLY the flight-related request.
 
-Return concise travel guidance.
+Rules:
+- Do not generate hotels, weather, itinerary, budget, or sightseeing content.
+- If the user asks for ONE flight, return exactly ONE flight option.
+- If the user asks for the cheapest flight, identify the cheapest option ONLY when
+  reliable price information is available.
+- The current tools may not provide live ticket fares. If exact live pricing is
+  unavailable, clearly state that the fare is an estimate and do not pretend it is
+  a live cheapest ticket.
+- If the destination is ambiguous (for example, "USA"), do not silently invent a
+  destination. Ask for a specific U.S. city/airport unless reliable cross-country
+  search data is available.
+
+Provide concise flight-focused guidance.
 """
 
 
@@ -428,62 +410,40 @@ def flight_agent(state: TravelState):
 
 
 # =========================
-# Hotel Agent - original behavior kept
+# Hotel Agent
 # =========================
 def hotel_agent(state: TravelState):
-    query = (
-        f"Best hotels for "
-        f"{state['user_query']}"
-    )
+    query = f"Best hotels for {state['user_query']}"
 
     try:
-        hotel_results = asyncio.run(
-            tavily_mcp_search(query)
-        )
-
+        hotel_results = asyncio.run(tavily_mcp_search(query))
     except Exception as exc:
         print(
-            f"HOTEL AGENT MCP ERROR: "
-            f"{type(exc).__name__}: {exc}",
+            f"HOTEL AGENT MCP ERROR: {type(exc).__name__}: {exc}",
             flush=True,
         )
-
         hotel_results = (
             "Live hotel search is temporarily unavailable. "
-            "Provide general accommodation and neighborhood "
-            "guidance based on the destination and clearly "
-            "label it as non-live advice."
+            "Provide general accommodation and neighborhood guidance based on the "
+            "destination and clearly label it as non-live advice."
         )
 
     return {
         "hotel_results": hotel_results,
-        "messages": [
-            AIMessage(
-                content="Hotel information processed."
-            )
-        ],
-        "llm_calls": (
-            state.get("llm_calls", 0) + 1
-        ),
+        "messages": [AIMessage(content="Hotel information processed.")],
+        "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
 
 # =========================
-# Weather Agent - original behavior kept
+# Weather Agent
 # =========================
 def weather_agent(state: TravelState):
-    city = extract_destination(
-        state["user_query"]
-    )
+    city = extract_destination(state["user_query"])
 
     try:
-        weather_data = asyncio.run(
-            weather_mcp_search(city)
-        )
-
-        forecast_data = asyncio.run(
-            forecast_mcp_search(city)
-        )
+        weather_data = asyncio.run(weather_mcp_search(city))
+        forecast_data = asyncio.run(forecast_mcp_search(city))
 
         weather_results = f"""
 Current Weather:
@@ -492,33 +452,25 @@ Current Weather:
 Forecast:
 {forecast_data}
 """
-
     except Exception as exc:
         print(
-            f"WEATHER AGENT MCP ERROR: "
-            f"{type(exc).__name__}: {exc}",
+            f"WEATHER AGENT MCP ERROR: {type(exc).__name__}: {exc}",
             flush=True,
         )
-
         weather_results = (
-            f"Live weather information for {city} "
-            "is temporarily unavailable. Give general "
-            "seasonal guidance and advise the traveler "
-            "to verify the forecast before departure."
+            f"Live weather information for {city} is temporarily unavailable. "
+            "Give general seasonal guidance and advise the traveler to verify the "
+            "forecast before departure."
         )
 
     return {
         "weather_results": weather_results,
-        "messages": [
-            AIMessage(
-                content="Weather information processed."
-            )
-        ],
+        "messages": [AIMessage(content="Weather information processed.")],
     }
 
 
 # =========================
-# Budget Agent - new specialist
+# Budget Agent
 # =========================
 def budget_agent(state: TravelState):
     prompt = f"""
@@ -563,7 +515,7 @@ If exact live prices are unavailable, clearly label estimates as approximate.
 
 
 # =========================
-# Itinerary Agent - original behavior extended with selected results
+# Itinerary Agent
 # =========================
 def itinerary_agent(state: TravelState):
     prompt = f"""
@@ -615,7 +567,6 @@ Create a clear draft that is ready for human review.
 # Human-in-the-Loop approval
 # =========================
 def human_approval_agent(state: TravelState):
-    # Do not wrap interrupt() in try/except. LangGraph uses it to pause execution.
     review = interrupt(
         {
             "question": "Do you approve this itinerary?",
@@ -641,32 +592,36 @@ def human_approval_agent(state: TravelState):
 
 
 # =========================
-# Final Response Agent - original format kept, HITL feedback added
+# Final Response Agent
 # =========================
 def final_agent(state: TravelState):
+    selected_agents = _selected_agents(state)
+
     if state.get("approved", False):
         review_instruction = (
             "The user approved the draft. Preserve its decisions while polishing it."
         )
-    else:
+    elif "itinerary_agent" in selected_agents:
         review_instruction = f"""
 The user requested a revision. Apply this feedback carefully:
 {state.get('human_feedback', '') or 'Improve the draft before finalizing it.'}
 """
+    else:
+        review_instruction = "No human-review step was required for this focused request."
 
     final_prompt = f"""
-Generate the final travel response for the user.
-
-Human Review:
-{review_instruction}
+Generate the final response for the user.
 
 User Request:
 {state['user_query']}
 
+Selected Agents:
+{selected_agents}
+
 Supervisor Constraints:
 {state.get('trip_constraints', {})}
 
-Flights:
+Flight Results:
 {state.get('flight_results', '')}
 
 Hotels:
@@ -681,28 +636,32 @@ Budget Analysis:
 Draft Itinerary:
 {state.get('itinerary', '')}
 
-Format the final answer beautifully using these sections:
-1. Trip Summary
-2. Flight Information
-3. Hotel Suggestions
-4. Weather Information
-5. Day-by-Day Itinerary
-6. Estimated Budget
-7. Final Recommendations
+Human Review:
+{review_instruction}
 
-Important:
-- Be clear and practical.
-- Mention that live flight APIs may not provide ticket prices when pricing is unavailable.
-- Include weather-based travel advice.
-- Keep the response useful for real travel planning.
-- Incorporate the human feedback when revision was requested.
+CRITICAL RESPONSE RULES:
+1. Answer ONLY what the user asked.
+2. Use ONLY information relevant to the selected agents and the user's request.
+3. Do NOT add unrelated travel sections.
+4. Do NOT mention or invent hotels when hotel_agent was not selected.
+5. Do NOT mention or invent weather when weather_agent was not selected.
+6. Do NOT create an itinerary when itinerary_agent was not selected.
+7. Do NOT create a budget analysis when budget_agent was not selected.
+8. If the user asks for ONE option, return exactly ONE option.
+9. If the user asks for the cheapest option, identify it as cheapest only when reliable
+   pricing data supports that claim. Otherwise clearly say that live pricing was not
+   available and do not fabricate a cheapest fare.
+10. Never turn an estimated fare into a claimed live ticket price.
+11. If the user's destination is ambiguous, such as "USA", ask a concise clarification
+    instead of silently choosing a city or airport.
+12. Keep focused questions concise. A flight-only question should produce a flight-only
+    answer, not a full trip plan.
+13. Incorporate human feedback only when an itinerary was actually created and reviewed.
 """
 
     response = llm.invoke(
         [
-            SystemMessage(
-                content="You are a professional AI travel booking assistant."
-            ),
+            SystemMessage(content="You are a professional AI travel booking assistant."),
             HumanMessage(content=final_prompt),
         ]
     )
@@ -724,6 +683,7 @@ ROUTE_MAP = {
     "weather_agent": "weather_agent",
     "budget_agent": "budget_agent",
     "itinerary_agent": "itinerary_agent",
+    "final_agent": "final_agent",
 }
 
 
@@ -737,31 +697,27 @@ def route_from_supervisor(state: TravelState) -> str:
         return "guardrail_blocked"
 
     selected = _selected_agents(state)
-    return selected[0] if selected else "itinerary_agent"
+    return selected[0] if selected else "final_agent"
 
 
 def route_after_agent(current_agent: str):
-
     def route(state: TravelState) -> str:
-
         selected = _selected_agents(state)
-
         current_index = AGENT_ORDER.index(current_agent)
 
-        # Find the next selected specialist.
         for next_agent in AGENT_ORDER[current_index + 1:]:
-
             if next_agent in selected:
                 return next_agent
 
-        # If itinerary was explicitly requested, create it.
+        # Only itinerary requests go through HITL.
         if "itinerary_agent" in selected:
             return "itinerary_agent"
 
-        # Otherwise, go directly to the final response.
+        # Focused requests go straight to the final response.
         return "final_agent"
 
     return route
+
 
 # =========================
 # Build Graph
@@ -800,7 +756,7 @@ graph.add_edge("final_agent", END)
 graph.add_edge("guardrail_blocked", END)
 
 # =========================
-# PostgreSQL Checkpointer - original persistence kept
+# PostgreSQL Checkpointer
 # =========================
 DATABASE_URL = get_database_url()
 _conn = psycopg.connect(
@@ -854,52 +810,51 @@ def _serialize_result(
         "hotel_results": result.get("hotel_results", ""),
         "weather_results": result.get("weather_results", ""),
         "budget_results": result.get("budget_results", ""),
-        "itinerary": (
-            interrupt_payload.get("draft_itinerary", "")
-            if interrupt_payload
-            else result.get("itinerary", "")
-        ),
+        "itinerary": result.get("itinerary", ""),
         "selected_agents": result.get("selected_agents", []),
-        "trip_constraints": result.get("trip_constraints", {}),
+        "trip_constraints": result.get("trip_constraints", _empty_constraints()),
         "supervisor_reasoning": result.get("supervisor_reasoning", ""),
         "guardrail_allowed": result.get("guardrail_allowed", True),
         "guardrail_reason": result.get("guardrail_reason", ""),
-        "approved": result.get("approved"),
+        "approved": result.get("approved", False),
         "human_feedback": result.get("human_feedback", ""),
         "llm_calls": result.get("llm_calls", 0),
     }
 
 
-def run_travel_agent(user_input: str, thread_id: str | None = None):
-    """Start a new travel-planning run and pause at human approval."""
-    if not thread_id:
-        thread_id = f"user_{uuid.uuid4().hex}"
+def run_travel_agent(
+    user_input: str,
+    thread_id: str | None = None,
+):
+    thread_id = thread_id or str(uuid.uuid4())
 
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
 
-    result = travel_graph.invoke(
-        {
-            "messages": [HumanMessage(content=user_input)],
-            "user_query": user_input,
-            "guardrail_allowed": True,
-            "guardrail_reason": "",
-            "selected_agents": [],
-            "trip_constraints": _empty_constraints(),
-            "supervisor_reasoning": "",
-            "flight_results": "",
-            "hotel_results": "",
-            "weather_results": "",
-            "budget_results": "",
-            "itinerary": "",
-            "approval_request": "",
-            "approved": False,
-            "human_feedback": "",
-            "final_response": "",
-            "llm_calls": 0,
-        },
-        config=config,
-    )
+    initial_state: TravelState = {
+        "messages": [HumanMessage(content=user_input)],
+        "user_query": user_input,
+        "guardrail_allowed": True,
+        "guardrail_reason": "",
+        "selected_agents": [],
+        "trip_constraints": _empty_constraints(),
+        "supervisor_reasoning": "",
+        "flight_results": "",
+        "hotel_results": "",
+        "weather_results": "",
+        "itinerary": "",
+        "budget_results": "",
+        "approval_request": "",
+        "approved": False,
+        "human_feedback": "",
+        "final_response": "",
+        "llm_calls": 0,
+    }
 
+    result = travel_graph.invoke(initial_state, config=config)
     return _serialize_result(result, thread_id)
 
 
@@ -908,11 +863,12 @@ def resume_travel_agent(
     approved: bool,
     feedback: str = "",
 ):
-    """Resume the paused LangGraph thread after human review."""
-    if not thread_id:
-        raise ValueError("thread_id is required to resume a travel plan.")
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+        }
+    }
 
-    config = {"configurable": {"thread_id": thread_id}}
     result = travel_graph.invoke(
         Command(
             resume={
