@@ -13,7 +13,16 @@
   const MAX_HISTORY = 8;
 
   const STAGE_MS = [2200, 2200, 1800, 3200, 2600];
-  const AGENT_ORDER = ["flight", "hotel", "weather", "itinerary", "final"];
+  const AGENT_ORDER = [
+    "supervisor",
+    "flight_agent",
+    "hotel_agent",
+    "weather_agent",
+    "budget_agent",
+    "itinerary_agent",
+    "human_approval",
+    "final_agent"
+  ];
 
   const el = {
     form: document.getElementById("travel-form"),
@@ -50,7 +59,35 @@
       hotels: document.getElementById("panel-hotels"),
       draft: document.getElementById("panel-draft"),
     },
+    
+    // ================================
+    // HUMAN-IN-THE-LOOP
+    // ================================
 
+    approvalPanel:
+      document.getElementById("approval-panel"),
+
+    approvalRequest:
+      document.getElementById("approval-request"),
+
+    approvalMeta:
+      document.getElementById("approval-meta"),
+
+    approvalDraft:
+      document.getElementById("approval-draft"),
+
+    approvalFeedback:
+      document.getElementById("approval-feedback-input"),
+
+    approvalStatus:
+      document.getElementById("approval-status"),
+
+    approveBtn:
+      document.getElementById("approve-btn"),
+
+    rejectBtn:
+      document.getElementById("reject-btn"),
+      
     history: document.getElementById("history"),
     historyList: document.getElementById("history-list"),
   };
@@ -740,6 +777,473 @@
   // ---------------------------------------------------------
   // Submit
   // ---------------------------------------------------------
+  // =========================================================
+// HUMAN-IN-THE-LOOP
+// =========================================================
+
+let approvalInProgress = false;
+
+
+function formatAgentName(agent) {
+
+  const names = {
+    supervisor: "Supervisor",
+    flight_agent: "Flight Scout",
+    hotel_agent: "Hotel Scout",
+    weather_agent: "Weather Scout",
+    budget_agent: "Budget Analyst",
+    itinerary_agent: "Itinerary Strategist",
+    human_approval: "Human Review",
+    final_agent: "Field Marshal"
+  };
+
+  return names[agent] || agent;
+
+}
+
+
+function showApprovalPanel(payload) {
+
+  lastPayload = payload;
+
+  el.approvalPanel.hidden = false;
+
+  el.results.hidden = true;
+
+  el.errorBanner.hidden = true;
+
+
+  el.approvalRequest.textContent =
+    payload.approval_request ||
+    "Shogun has prepared a draft itinerary for your review.";
+
+
+  el.approvalDraft.innerHTML =
+    renderMarkdown(
+      payload.itinerary ||
+      payload.draft_itinerary ||
+      payload.answer ||
+      "No draft itinerary was returned."
+    );
+
+
+  const selected =
+    Array.isArray(payload.selected_agents)
+      ? payload.selected_agents
+      : [];
+
+
+  if (selected.length) {
+
+    el.approvalMeta.textContent =
+      `Supervisor selected: ${selected
+        .map(formatAgentName)
+        .join(" · ")}`;
+
+  } else {
+
+    el.approvalMeta.textContent =
+      "The Supervisor has prepared this plan for human review.";
+
+  }
+
+
+  el.approvalFeedback.value = "";
+
+  el.approvalStatus.hidden = true;
+
+  el.approvalStatus.textContent = "";
+
+
+  updatePipelineFromBackend(payload);
+
+
+  el.approvalPanel.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+
+}
+
+
+function setApprovalLoading(
+  loading,
+  message = ""
+) {
+
+  approvalInProgress = loading;
+
+  el.approveBtn.disabled = loading;
+
+  el.rejectBtn.disabled = loading;
+
+  el.approvalFeedback.disabled = loading;
+
+
+  if (loading) {
+
+    el.approvalStatus.hidden = false;
+
+    el.approvalStatus.textContent =
+      message;
+
+  } else {
+
+    el.approvalStatus.hidden = true;
+
+  }
+
+}
+
+
+function updatePipelineFromBackend(payload) {
+
+  const selected =
+    new Set(
+      Array.isArray(payload.selected_agents)
+        ? payload.selected_agents
+        : []
+    );
+
+
+  el.nodes.forEach((node) => {
+
+    const agent =
+      node.dataset.agent;
+
+    const status =
+      node.querySelector(".node-status");
+
+
+    if (!status) return;
+
+
+    node.classList.remove(
+      "active",
+      "complete",
+      "waiting",
+      "skipped"
+    );
+
+
+    if (agent === "supervisor") {
+
+      node.classList.add("complete");
+
+      status.textContent =
+        "Completed";
+
+      return;
+
+    }
+
+
+    if (agent === "human_approval") {
+
+      if (payload.requires_approval) {
+
+        node.classList.add("waiting");
+
+        status.textContent =
+          "Awaiting approval";
+
+      } else {
+
+        node.classList.add("complete");
+
+        status.textContent =
+          "Reviewed";
+
+      }
+
+      return;
+
+    }
+
+
+    if (agent === "final_agent") {
+
+      if (
+        payload.final_response ||
+        payload.answer
+      ) {
+
+        node.classList.add("complete");
+
+        status.textContent =
+          "Completed";
+
+      }
+
+      return;
+
+    }
+
+
+    if (
+      [
+        "flight_agent",
+        "hotel_agent",
+        "weather_agent",
+        "budget_agent",
+        "itinerary_agent"
+      ].includes(agent)
+    ) {
+
+      if (!selected.size) {
+
+        node.classList.add("complete");
+
+        status.textContent =
+          "Completed";
+
+        return;
+
+      }
+
+
+      if (selected.has(agent)) {
+
+        node.classList.add("complete");
+
+        status.textContent =
+          "Completed";
+
+      } else {
+
+        node.classList.add("skipped");
+
+        status.textContent =
+          "Not required";
+
+      }
+
+    }
+
+  });
+
+}
+
+
+function hideApprovalPanel() {
+
+  el.approvalPanel.hidden = true;
+
+}
+
+
+async function resumeMission(approved) {
+
+  if (approvalInProgress) {
+    return;
+  }
+
+
+  const threadId =
+    lastPayload?.thread_id ||
+    getThreadId();
+
+
+  if (!threadId) {
+
+    renderError(
+      "No active travel mission was found."
+    );
+
+    return;
+
+  }
+
+
+  const feedback =
+    el.approvalFeedback.value.trim();
+
+
+  if (!approved && !feedback) {
+
+    el.approvalStatus.hidden = false;
+
+    el.approvalStatus.textContent =
+      "Please describe what you want changed.";
+
+    el.approvalFeedback.focus();
+
+    return;
+
+  }
+
+
+  setApprovalLoading(
+    true,
+    approved
+      ? "Approval received. Finalizing your mission…"
+      : "Sending your requested changes…"
+  );
+
+
+  try {
+
+    const res =
+      await fetch(
+        "/api/travel/approve",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            thread_id: threadId,
+            approved: approved,
+            feedback: feedback
+          })
+        }
+      );
+
+
+    const data =
+      await res.json();
+
+
+    if (
+      !res.ok ||
+      !data.success
+    ) {
+
+      throw new Error(
+        data.error ||
+        `Approval request failed (HTTP ${res.status}).`
+      );
+
+    }
+
+
+    lastPayload = data;
+
+
+    updatePipelineFromBackend(data);
+
+
+    /*
+     * Backend may interrupt again.
+     */
+
+    if (data.requires_approval) {
+
+      showApprovalPanel(data);
+
+      return;
+
+    }
+
+
+    /*
+     * Guardrail / blocked state.
+     */
+
+    if (
+      data.guardrail_allowed === false ||
+      data.status === "guardrail_blocked"
+    ) {
+
+      hideApprovalPanel();
+
+      renderGuardrailBlock(data);
+
+      return;
+
+    }
+
+
+    /*
+     * Final result.
+     */
+
+    hideApprovalPanel();
+
+    renderResults(data);
+
+    saveToHistory(
+      lastQuery,
+      data
+    );
+
+
+    window.scrollTo({
+      top:
+        el.results.offsetTop - 24,
+      behavior: "smooth"
+    });
+
+
+  } catch (err) {
+
+    renderError(
+      err?.message ||
+      "Could not resume the travel mission."
+    );
+
+  } finally {
+
+    setApprovalLoading(false);
+
+  }
+
+}
+
+
+function renderGuardrailBlock(payload) {
+
+  hideApprovalPanel();
+
+  el.results.hidden = true;
+
+  el.errorBanner.hidden = false;
+
+
+  el.errorDetail.textContent =
+    payload.guardrail_reason ||
+    payload.answer ||
+    "This request was blocked by Shogun's travel guardrail.";
+
+
+  const title =
+    el.errorBanner.querySelector(
+      ".error-title"
+    );
+
+
+  if (title) {
+
+    title.textContent =
+      "Mission blocked by travel guardrail.";
+
+  }
+
+
+  window.scrollTo({
+    top:
+      el.errorBanner.offsetTop - 24,
+    behavior: "smooth"
+  });
+
+}
+
+
+el.approveBtn.addEventListener(
+  "click",
+  () => resumeMission(true)
+);
+
+
+el.rejectBtn.addEventListener(
+  "click",
+  () => resumeMission(false)
+);
+
+
 
   async function dispatch(query) {
     lastQuery = query;
@@ -979,3 +1483,4 @@
   getThreadId();
 
 })();
+

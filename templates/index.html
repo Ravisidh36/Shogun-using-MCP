@@ -1,282 +1,1170 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Shogun — Travel Intelligence by Multi-Agent AI</title>
-<meta name="description" content="Dispatch flight, hotel, and itinerary agents in one order. A LangGraph-powered travel planning console.">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <title>Shogun — Travel Intelligence by Multi-Agent AI</title>
 
-<link rel="stylesheet" href="/static/style.css?v=3">
+  <meta
+    name="description"
+    content="A LangGraph-powered multi-agent travel planning console with Supervisor routing, guardrails and human approval."
+  >
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;600;800&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  >
+
+  <link rel="stylesheet" href="/static/style.css?v=4">
 </head>
+
 <body>
 
 <div class="app-shell">
 
-  <!-- ===================================================
+  <!-- =====================================================
        SIDEBAR
-       =================================================== -->
+       ===================================================== -->
+
   <nav class="sidebar" aria-label="Primary">
+
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
+
       <div class="brand-text">
         <span class="brand-name">SHOGUN</span>
-        <span class="brand-sub">Travel intelligence<br>by multi-agent AI</span>
+        <span class="brand-sub">
+          Travel intelligence<br>
+          by multi-agent AI
+        </span>
       </div>
     </div>
 
     <ul class="nav-list">
+
       <li>
         <a href="#hero" class="nav-item active" data-nav="plan">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <path d="M2.5 6L9 2.5L15.5 6M4 5V15H14V5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M7 15V10.5H11V15" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+          <svg class="nav-icon"
+               width="18"
+               height="18"
+               viewBox="0 0 18 18"
+               fill="none"
+               aria-hidden="true">
+
+            <path
+              d="M2.5 6L9 2.5L15.5 6M4 5V15H14V5"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+
+            <path
+              d="M7 15V10.5H11V15"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+
           </svg>
+
           Plan Mission
+
         </a>
       </li>
+
       <li>
         <a href="#campaigns" class="nav-item" data-nav="campaigns">
-          <svg class="nav-icon" width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-            <circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.4"/>
-            <path d="M9 5.5V9L11.5 10.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+
+          <svg class="nav-icon"
+               width="18"
+               height="18"
+               viewBox="0 0 18 18"
+               fill="none"
+               aria-hidden="true">
+
+            <circle
+              cx="9"
+              cy="9"
+              r="6.5"
+              stroke="currentColor"
+              stroke-width="1.4"
+            />
+
+            <path
+              d="M9 5.5V9L11.5 10.5"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+
           </svg>
+
           Past Campaigns
+
         </a>
       </li>
+
     </ul>
 
     <p class="sidebar-quote">
       &ldquo;A well-planned journey is a victorious one.&rdquo;
       <span>— Shogun</span>
     </p>
+
   </nav>
 
-  <!-- ===================================================
+
+  <!-- =====================================================
        MAIN
-       =================================================== -->
+       ===================================================== -->
+
   <main class="app-main">
 
     <header class="topbar">
-      <p class="topbar-tag"><span>EXPLORE</span><span>PLAN</span><span>TRAVEL</span><span>REPEAT</span></p>
-      <button type="button" id="new-trip-btn" class="ghost-btn topbar-action">New Campaign <span aria-hidden="true">+</span></button>
+
+      <p class="topbar-tag">
+        <span>EXPLORE</span>
+        <span>PLAN</span>
+        <span>TRAVEL</span>
+        <span>REPEAT</span>
+      </p>
+
+      <button
+        type="button"
+        id="new-trip-btn"
+        class="ghost-btn topbar-action"
+      >
+        New Campaign
+        <span aria-hidden="true">+</span>
+      </button>
+
     </header>
 
-    <section class="hero" id="hero" aria-label="Travel request console">
+
+    <!-- =====================================================
+         HERO
+         ===================================================== -->
+
+    <section
+      class="hero"
+      id="hero"
+      aria-label="Travel request console"
+    >
+
       <div class="hero-illustration" aria-hidden="true">
-        <svg viewBox="0 0 520 340" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">
-          <circle cx="410" cy="90" r="70" fill="var(--shu)" opacity="0.16"/>
-          <path d="M60 260 L160 120 L215 190 L270 90 L360 260 Z" fill="var(--charcoal)" opacity="0.32"/>
-          <path d="M180 260 L250 160 L300 220 L340 150 L430 260 Z" fill="var(--charcoal)" opacity="0.55"/>
-          <rect x="360" y="150" width="10" height="60" fill="var(--charcoal)" opacity="0.7"/>
-          <path d="M348 150 L382 150 L365 136 Z" fill="var(--charcoal)" opacity="0.7"/>
-          <path d="M352 168 L378 168 L365 156 Z" fill="var(--charcoal)" opacity="0.7"/>
-          <ellipse cx="120" cy="255" rx="90" ry="8" fill="var(--text-muted)" opacity="0.22"/>
-          <ellipse cx="320" cy="270" rx="140" ry="9" fill="var(--text-muted)" opacity="0.18"/>
+
+        <svg
+          viewBox="0 0 520 340"
+          width="100%"
+          height="100%"
+          preserveAspectRatio="xMidYMid slice"
+        >
+
+          <circle
+            cx="410"
+            cy="90"
+            r="70"
+            fill="var(--shu)"
+            opacity="0.16"
+          />
+
+          <path
+            d="M60 260 L160 120 L215 190 L270 90 L360 260 Z"
+            fill="var(--charcoal)"
+            opacity="0.32"
+          />
+
+          <path
+            d="M180 260 L250 160 L300 220 L340 150 L430 260 Z"
+            fill="var(--charcoal)"
+            opacity="0.55"
+          />
+
+          <rect
+            x="360"
+            y="150"
+            width="10"
+            height="60"
+            fill="var(--charcoal)"
+            opacity="0.7"
+          />
+
+          <path
+            d="M348 150 L382 150 L365 136 Z"
+            fill="var(--charcoal)"
+            opacity="0.7"
+          />
+
+          <path
+            d="M352 168 L378 168 L365 156 Z"
+            fill="var(--charcoal)"
+            opacity="0.7"
+          />
+
+          <ellipse
+            cx="120"
+            cy="255"
+            rx="90"
+            ry="8"
+            fill="var(--text-muted)"
+            opacity="0.22"
+          />
+
+          <ellipse
+            cx="320"
+            cy="270"
+            rx="140"
+            ry="9"
+            fill="var(--text-muted)"
+            opacity="0.18"
+          />
+
         </svg>
+
       </div>
 
-      <p class="eyebrow">Plan smarter travel</p>
-      <h1 class="hero-title">Plan Smarter Travel</h1>
-      <p class="hero-sub">A squad of AI agents. One mission — your perfect trip.</p>
+
+      <p class="eyebrow">
+        Plan smarter travel
+      </p>
+
+      <h1 class="hero-title">
+        Plan Smarter Travel
+      </h1>
+
+      <p class="hero-sub">
+        A squad of AI agents. One mission — your perfect trip.
+      </p>
+
 
       <ul class="hero-points">
-        <li><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 1.5V13.5M1.5 7.5H13.5" stroke="currentColor" stroke-width="0" /><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M5 7.5L7 9.5L10.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Multiple perspectives</li>
-        <li><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M5 7.5L7 9.5L10.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Real-time information</li>
-        <li><svg width="15" height="15" viewBox="0 0 15 15" fill="none"><circle cx="7.5" cy="7.5" r="6" stroke="currentColor" stroke-width="1.2"/><path d="M5 7.5L7 9.5L10.5 5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Better itineraries</li>
+
+        <li>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <circle
+              cx="7.5"
+              cy="7.5"
+              r="6"
+              stroke="currentColor"
+              stroke-width="1.2"
+            />
+            <path
+              d="M5 7.5L7 9.5L10.5 5.5"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+
+          Multiple perspectives
+        </li>
+
+        <li>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <circle
+              cx="7.5"
+              cy="7.5"
+              r="6"
+              stroke="currentColor"
+              stroke-width="1.2"
+            />
+            <path
+              d="M5 7.5L7 9.5L10.5 5.5"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+
+          Real-time information
+        </li>
+
+        <li>
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <circle
+              cx="7.5"
+              cy="7.5"
+              r="6"
+              stroke="currentColor"
+              stroke-width="1.2"
+            />
+            <path
+              d="M5 7.5L7 9.5L10.5 5.5"
+              stroke="currentColor"
+              stroke-width="1.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+
+          Human-approved itineraries
+        </li>
+
       </ul>
 
+
+      <!-- ===================================================
+           TRAVEL FORM
+           =================================================== -->
+
       <form id="travel-form" class="order-form">
+
         <div class="order-form-head">
-          <h2>Where do you want to go?</h2>
-          <p>Let Shogun's agents handle the rest.</p>
+
+          <h2>
+            Where do you want to go?
+          </h2>
+
+          <p>
+            Let Shogun's agents handle the rest.
+          </p>
+
         </div>
+
 
         <div class="field-row">
+
           <label class="field">
+
             <span class="field-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 12.5S11.5 8.7 11.5 5.7A4.5 4.5 0 1 0 2.5 5.7C2.5 8.7 7 12.5 7 12.5Z" stroke="currentColor" stroke-width="1.2"/><circle cx="7" cy="5.6" r="1.5" stroke="currentColor" stroke-width="1.2"/></svg>
               Destination
             </span>
-            <input type="text" id="destination-input" placeholder="e.g. Tokyo, Bali, Europe" autocomplete="off">
+
+            <input
+              type="text"
+              id="destination-input"
+              placeholder="e.g. Tokyo, Bali, Europe"
+              autocomplete="off"
+            >
+
           </label>
+
 
           <label class="field field-dates">
+
             <span class="field-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="1.5" y="2.8" width="11" height="9.7" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 5.6H12.5M4 1.5V3.6M10 1.5V3.6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
               Travel dates
             </span>
+
             <span class="date-pair">
-              <input type="date" id="date-start" aria-label="Start date">
-              <span class="date-sep">–</span>
-              <input type="date" id="date-end" aria-label="End date">
+
+              <input
+                type="date"
+                id="date-start"
+                aria-label="Start date"
+              >
+
+              <span class="date-sep">
+                –
+              </span>
+
+              <input
+                type="date"
+                id="date-end"
+                aria-label="End date"
+              >
+
             </span>
+
           </label>
 
+
           <label class="field field-narrow">
+
             <span class="field-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="7" cy="4.3" r="2.3" stroke="currentColor" stroke-width="1.2"/><path d="M2.3 12.3C2.7 9.6 4.5 8 7 8C9.5 8 11.3 9.6 11.7 12.3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
               Travelers
             </span>
+
             <select id="travelers-select">
-              <option value="">Any</option>
-              <option value="1 traveler">1 traveler</option>
-              <option value="2 travelers" selected>2 travelers</option>
-              <option value="3 travelers">3 travelers</option>
-              <option value="4 travelers">4 travelers</option>
-              <option value="a group of 5 or more">5+ travelers</option>
+
+              <option value="">
+                Any
+              </option>
+
+              <option value="1 traveler">
+                1 traveler
+              </option>
+
+              <option
+                value="2 travelers"
+                selected
+              >
+                2 travelers
+              </option>
+
+              <option value="3 travelers">
+                3 travelers
+              </option>
+
+              <option value="4 travelers">
+                4 travelers
+              </option>
+
+              <option value="a group of 5 or more">
+                5+ travelers
+              </option>
+
             </select>
+
           </label>
+
 
           <label class="field field-narrow">
+
             <span class="field-label">
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M2 12L6 4L8 8L10 5L12 12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Trip style
             </span>
+
             <select id="style-select">
-              <option value="">Any</option>
-              <option value="budget">Budget</option>
-              <option value="mid-range" selected>Mid-range</option>
-              <option value="luxury">Luxury</option>
-              <option value="business">Business</option>
-              <option value="adventure">Adventure</option>
+
+              <option value="">
+                Any
+              </option>
+
+              <option value="budget">
+                Budget
+              </option>
+
+              <option
+                value="mid-range"
+                selected
+              >
+                Mid-range
+              </option>
+
+              <option value="luxury">
+                Luxury
+              </option>
+
+              <option value="business">
+                Business
+              </option>
+
+              <option value="adventure">
+                Adventure
+              </option>
+
             </select>
+
           </label>
 
-          <button type="submit" id="submit-btn" class="primary-btn">
-            <span class="btn-label">Dispatch Scouts</span>
-            <svg class="btn-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M2 8H14M14 8L9 3M14 8L9 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+          <button
+            type="submit"
+            id="submit-btn"
+            class="primary-btn"
+          >
+
+            <span class="btn-label">
+              Dispatch Scouts
+            </span>
+
+            <svg
+              class="btn-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
+
+              <path
+                d="M2 8H14M14 8L9 3M14 8L9 13"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+
             </svg>
+
           </button>
+
         </div>
 
+
         <details class="advanced-details">
-          <summary>Add more detail (optional)</summary>
-          <label for="query-input" class="sr-only">Describe your trip</label>
+
+          <summary>
+            Add more detail (optional)
+          </summary>
+
+          <label
+            for="query-input"
+            class="sr-only"
+          >
+            Describe your trip
+          </label>
+
           <textarea
             id="query-input"
             name="query"
             rows="2"
-            placeholder="e.g. under ৳150,000, prefer a beach hotel, must include sightseeing"
+            placeholder="e.g. under ₹150,000, prefer a beach hotel, must include sightseeing"
           ></textarea>
-          <div class="chip-row" id="example-chips" aria-label="Example requests">
-            <button type="button" class="chip" data-example="Plan a 7 day trip from Jaipur to Tokyo, under ৳150,000, including flights, hotels and sightseeing">Jaipur → Tokyo, 7 days</button>
-            <button type="button" class="chip" data-example="Plan a complete 5 day Bali trip from Jaipur including flights, hotels and sightseeing on a budget">Jaipur → Bali, budget trip</button>
-            <button type="button" class="chip" data-example="Plan a 4 day trip from Jaipur to Bangkok for a couple, mid-range budget, with flights and hotels">Jaipur → Bangkok, 4 days</button>
+
+
+          <div
+            class="chip-row"
+            id="example-chips"
+            aria-label="Example requests"
+          >
+
+            <button
+              type="button"
+              class="chip"
+              data-example="Plan a 7 day trip from Jaipur to Tokyo, under ₹150,000, including flights, hotels and sightseeing"
+            >
+              Jaipur → Tokyo, 7 days
+            </button>
+
+            <button
+              type="button"
+              class="chip"
+              data-example="Plan a complete 5 day Bali trip from Jaipur including flights, hotels and sightseeing on a budget"
+            >
+              Jaipur → Bali, budget trip
+            </button>
+
+            <button
+              type="button"
+              class="chip"
+              data-example="Plan a 4 day trip from Jaipur to Bangkok for a couple, mid-range budget, with flights and hotels"
+            >
+              Jaipur → Bangkok, 4 days
+            </button>
+
           </div>
+
         </details>
+
       </form>
 
-      <button type="button" class="scroll-cue" id="scroll-cue" aria-label="Scroll down">
-        <span class="scroll-cue-line" aria-hidden="true"></span>
-        <svg width="14" height="8" viewBox="0 0 14 8" fill="none" aria-hidden="true">
-          <path d="M1 1L7 7L13 1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <button
+        type="button"
+        class="scroll-cue"
+        id="scroll-cue"
+        aria-label="Scroll down"
+      >
+
+        <span
+          class="scroll-cue-line"
+          aria-hidden="true"
+        ></span>
+
+        <svg
+          width="14"
+          height="8"
+          viewBox="0 0 14 8"
+          fill="none"
+          aria-hidden="true"
+        >
+
+          <path
+            d="M1 1L7 7L13 1"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+
         </svg>
+
       </button>
+
     </section>
 
-    <section class="pipeline" id="pipeline" aria-live="polite" aria-label="Agent pipeline status" hidden>
-      <h2 class="section-title">Meet Your Squad</h2>
+
+    <!-- =====================================================
+         PIPELINE
+         ===================================================== -->
+
+    <section
+      class="pipeline"
+      id="pipeline"
+      aria-live="polite"
+      aria-label="Agent pipeline status"
+      hidden
+    >
+
+      <h2 class="section-title">
+        Mission Control
+      </h2>
+
       <ol class="pipeline-track">
-        <li class="pipeline-node" data-agent="flight">
+
+        <li
+          class="pipeline-node"
+          data-agent="supervisor"
+        >
+
           <span class="node-ring">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2.5 11.5L8 9.8V4.5C8 3.7 8.7 3 9.5 3S11 3.7 11 4.5V9.8L16.5 11.5V13L11 11.6V15.5L13 17V18L9.5 17L6 18V17L8 15.5V11.6L2.5 13V11.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            <span class="pipeline-symbol">
+              S
+            </span>
           </span>
-          <span class="node-label">Flight Scout</span>
-          <span class="node-desc">Finds the best flights</span>
-          <span class="node-status">Standing by</span>
+
+          <span class="node-label">
+            Supervisor
+          </span>
+
+          <span class="node-desc">
+            Plans the mission
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
         </li>
-        <li class="pipeline-node" data-agent="hotel">
+
+
+        <li
+          class="pipeline-node"
+          data-agent="flight_agent"
+        >
+
           <span class="node-ring">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2.5 15.5V6M2.5 15.5H17.5M2.5 15.5V11.5H17.5V15.5M17.5 15.5V9C17.5 8 16.7 7.5 15.7 7.5H7.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6" cy="8.3" r="1.3" stroke="currentColor" stroke-width="1.1"/></svg>
+            <span class="pipeline-symbol">
+              ✈
+            </span>
           </span>
-          <span class="node-label">Hotel Scout</span>
-          <span class="node-desc">Finds the right stays</span>
-          <span class="node-status">Standing by</span>
+
+          <span class="node-label">
+            Flight Scout
+          </span>
+
+          <span class="node-desc">
+            Finds flight intelligence
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
         </li>
-        <li class="pipeline-node" data-agent="weather">
+
+
+        <li
+          class="pipeline-node"
+          data-agent="hotel_agent"
+        >
+
           <span class="node-ring">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M6.5 15H13.5C15 15 16.2 13.8 16.2 12.3C16.2 10.9 15.1 9.7 13.7 9.6C13.4 7.4 11.5 5.7 9.2 5.7C6.9 5.7 5 7.5 4.8 9.7C3.5 10 2.5 11.1 2.5 12.5C2.5 13.9 3.7 15 5.1 15" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span class="pipeline-symbol">
+              ⌂
+            </span>
           </span>
-          <span class="node-label">Weather Scout</span>
-          <span class="node-desc">Checks the conditions</span>
-          <span class="node-status">Standing by</span>
+
+          <span class="node-label">
+            Hotel Scout
+          </span>
+
+          <span class="node-desc">
+            Finds accommodation
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
         </li>
-        <li class="pipeline-node" data-agent="itinerary">
+
+
+        <li
+          class="pipeline-node"
+          data-agent="weather_agent"
+        >
+
           <span class="node-ring">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 3.5H14.5C15.3 3.5 16 4.2 16 5V16.5L13 15L10 16.5L7 15L4 16.5V3.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 7.5H12.5M7 10.3H12.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>
+            <span class="pipeline-symbol">
+              ☁
+            </span>
           </span>
-          <span class="node-label">Itinerary Strategist</span>
-          <span class="node-desc">Builds the optimal plan</span>
-          <span class="node-status">Standing by</span>
+
+          <span class="node-label">
+            Weather Scout
+          </span>
+
+          <span class="node-desc">
+            Checks conditions
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
         </li>
-        <li class="pipeline-node" data-agent="final">
+
+
+        <li
+          class="pipeline-node"
+          data-agent="budget_agent"
+        >
+
           <span class="node-ring">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2.5L12.1 7.2L17 7.7L13.3 11L14.4 16L10 13.4L5.6 16L6.7 11L3 7.7L7.9 7.2L10 2.5Z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></svg>
+            <span class="pipeline-symbol">
+              ₹
+            </span>
           </span>
-          <span class="node-label">Field Marshal</span>
-          <span class="node-desc">Unifies intelligence into your mission</span>
-          <span class="node-status">Standing by</span>
+
+          <span class="node-label">
+            Budget Analyst
+          </span>
+
+          <span class="node-desc">
+            Checks cost & feasibility
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
         </li>
+
+
+        <li
+          class="pipeline-node"
+          data-agent="itinerary_agent"
+        >
+
+          <span class="node-ring">
+            <span class="pipeline-symbol">
+              ✦
+            </span>
+          </span>
+
+          <span class="node-label">
+            Itinerary Strategist
+          </span>
+
+          <span class="node-desc">
+            Builds the draft plan
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
+        </li>
+
+
+        <li
+          class="pipeline-node"
+          data-agent="human_approval"
+        >
+
+          <span class="node-ring">
+            <span class="pipeline-symbol">
+              ✓
+            </span>
+          </span>
+
+          <span class="node-label">
+            Human Review
+          </span>
+
+          <span class="node-desc">
+            You approve the plan
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
+        </li>
+
+
+        <li
+          class="pipeline-node"
+          data-agent="final_agent"
+        >
+
+          <span class="node-ring">
+            <span class="pipeline-symbol">
+              ★
+            </span>
+          </span>
+
+          <span class="node-label">
+            Field Marshal
+          </span>
+
+          <span class="node-desc">
+            Finalizes your mission
+          </span>
+
+          <span class="node-status">
+            Standing by
+          </span>
+
+        </li>
+
       </ol>
+
     </section>
 
-    <section class="error-banner" id="error-banner" hidden role="alert">
-      <div class="error-inner">
+
+    <!-- =====================================================
+         HUMAN IN THE LOOP
+         ===================================================== -->
+
+    <section
+      class="approval-panel"
+      id="approval-panel"
+      hidden
+      aria-live="polite"
+      aria-label="Human approval required"
+    >
+
+      <div class="approval-header">
+
+        <div class="approval-icon">
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+
+            <path
+              d="M12 3L20 7V12C20 17 16.7 20.3 12 22C7.3 20.3 4 17 4 12V7L12 3Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+
+            <path
+              d="M12 8V12"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+
+            <circle
+              cx="12"
+              cy="16"
+              r="0.8"
+              fill="currentColor"
+            />
+
+          </svg>
+        </div>
+
+
         <div>
-          <p class="error-title">The campaign was called off.</p>
-          <p class="error-detail" id="error-detail"></p>
+
+          <p class="approval-eyebrow">
+            HUMAN REVIEW REQUIRED
+          </p>
+
+          <h2>
+            Review Shogun's draft
+          </h2>
+
+          <p id="approval-request">
+            Shogun has prepared a draft itinerary for your review.
+          </p>
+
         </div>
-        <button type="button" class="ghost-btn small" id="error-retry">Retry</button>
+
       </div>
+
+
+      <div
+        class="approval-meta"
+        id="approval-meta"
+      ></div>
+
+
+      <div class="approval-draft">
+
+        <div class="approval-draft-label">
+          DRAFT ITINERARY
+        </div>
+
+        <div
+          id="approval-draft"
+          class="approval-draft-content prose"
+        ></div>
+
+      </div>
+
+
+      <div class="approval-feedback">
+
+        <label for="approval-feedback-input">
+
+          Feedback
+
+          <span>
+            required for changes
+          </span>
+
+        </label>
+
+        <textarea
+          id="approval-feedback-input"
+          rows="3"
+          placeholder="Tell Shogun what should be changed..."
+        ></textarea>
+
+      </div>
+
+
+      <div class="approval-actions">
+
+        <button
+          type="button"
+          id="reject-btn"
+          class="approval-btn approval-btn-secondary"
+        >
+          Request Changes
+        </button>
+
+        <button
+          type="button"
+          id="approve-btn"
+          class="approval-btn approval-btn-primary"
+        >
+          Approve & Finalize
+        </button>
+
+      </div>
+
+
+      <p
+        class="approval-status"
+        id="approval-status"
+        hidden
+      ></p>
+
     </section>
 
-    <section class="results" id="results" hidden aria-label="Results">
+
+    <!-- =====================================================
+         ERROR
+         ===================================================== -->
+
+    <section
+      class="error-banner"
+      id="error-banner"
+      hidden
+      role="alert"
+    >
+
+      <div class="error-inner">
+
+        <div>
+
+          <p class="error-title">
+            The campaign was called off.
+          </p>
+
+          <p
+            class="error-detail"
+            id="error-detail"
+          ></p>
+
+        </div>
+
+        <button
+          type="button"
+          class="ghost-btn small"
+          id="error-retry"
+        >
+          Retry
+        </button>
+
+      </div>
+
+    </section>
+
+
+    <!-- =====================================================
+         RESULTS
+         ===================================================== -->
+
+    <section
+      class="results"
+      id="results"
+      hidden
+      aria-label="Results"
+    >
+
       <div class="results-head">
-        <div class="results-tabs" role="tablist" aria-label="Result sections">
-          <button role="tab" aria-selected="true" class="tab active" data-tab="answer">Briefing</button>
-          <button role="tab" aria-selected="false" class="tab" data-tab="flights">Flight Intel</button>
-          <button role="tab" aria-selected="false" class="tab" data-tab="weather">Weather</button>
-          <button role="tab" aria-selected="false" class="tab" data-tab="hotels">Lodging Intel</button>
-          <button role="tab" aria-selected="false" class="tab" data-tab="draft">Draft Itinerary</button>
-        </div>
-        <div class="results-head-actions">
-          <p class="results-meta" id="results-meta"></p>
-          <button type="button" id="download-pdf-btn" class="ghost-btn small">
-            <span id="download-pdf-label">Download PDF</span>
+
+        <div
+          class="results-tabs"
+          role="tablist"
+          aria-label="Result sections"
+        >
+
+          <button
+            role="tab"
+            aria-selected="true"
+            class="tab active"
+            data-tab="answer"
+          >
+            Briefing
           </button>
+
+          <button
+            role="tab"
+            aria-selected="false"
+            class="tab"
+            data-tab="flights"
+          >
+            Flight Intel
+          </button>
+
+          <button
+            role="tab"
+            aria-selected="false"
+            class="tab"
+            data-tab="weather"
+          >
+            Weather
+          </button>
+
+          <button
+            role="tab"
+            aria-selected="false"
+            class="tab"
+            data-tab="hotels"
+          >
+            Lodging Intel
+          </button>
+
+          <button
+            role="tab"
+            aria-selected="false"
+            class="tab"
+            data-tab="draft"
+          >
+            Draft Itinerary
+          </button>
+
         </div>
+
+
+        <div class="results-head-actions">
+
+          <p
+            class="results-meta"
+            id="results-meta"
+          ></p>
+
+          <button
+            type="button"
+            id="download-pdf-btn"
+            class="ghost-btn small"
+          >
+            <span id="download-pdf-label">
+              Download PDF
+            </span>
+          </button>
+
+        </div>
+
       </div>
 
-      <div class="tab-panel prose" data-panel="answer" id="panel-answer"></div>
-      <div class="tab-panel prose" data-panel="flights" id="panel-flights" hidden></div>
-      <div class="tab-panel prose" data-panel="weather" id="panel-weather" hidden></div>
-      <div class="tab-panel prose" data-panel="hotels" id="panel-hotels" hidden></div>
-      <div class="tab-panel prose" data-panel="draft" id="panel-draft" hidden></div>
+
+      <div
+        class="tab-panel prose"
+        data-panel="answer"
+        id="panel-answer"
+      ></div>
+
+      <div
+        class="tab-panel prose"
+        data-panel="flights"
+        id="panel-flights"
+        hidden
+      ></div>
+
+      <div
+        class="tab-panel prose"
+        data-panel="weather"
+        id="panel-weather"
+        hidden
+      ></div>
+
+      <div
+        class="tab-panel prose"
+        data-panel="hotels"
+        id="panel-hotels"
+        hidden
+      ></div>
+
+      <div
+        class="tab-panel prose"
+        data-panel="draft"
+        id="panel-draft"
+        hidden
+      ></div>
+
     </section>
 
-    <section class="history" id="history" hidden aria-label="Past campaigns">
-      <h2 class="section-title" id="campaigns">Past Campaigns</h2>
+
+    <!-- =====================================================
+         HISTORY
+         ===================================================== -->
+
+    <section
+      class="history"
+      id="history"
+      hidden
+      aria-label="Past campaigns"
+    >
+
+      <h2
+        class="section-title"
+        id="campaigns"
+      >
+        Past Campaigns
+      </h2>
+
       <ul id="history-list"></ul>
+
     </section>
+
 
     <footer class="site-footer">
-      <span>Plans today. Memories tomorrow.</span>
-      <span class="footer-dim">LangGraph multi-agent pipeline · Flights via AviationStack · Search via Tavily · Weather via OpenWeather</span>
+
+      <span>
+        Plans today. Memories tomorrow.
+      </span>
+
+      <span class="footer-dim">
+        LangGraph multi-agent pipeline ·
+        Flights via AviationStack ·
+        Search via Tavily ·
+        Weather via OpenWeather
+      </span>
+
     </footer>
 
   </main>
+
 </div>
 
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
+<script src="/static/script.js?v=4"></script>
 
-
-<script src="/static/script.js?v=3"></script>
 </body>
 </html>
