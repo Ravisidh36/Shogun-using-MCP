@@ -208,33 +208,110 @@ User request:
 
     supervisor_prompt = f"""
 You are the supervisor of a multi-agent travel-planning system.
-Choose only the specialist agents needed for the request.
+
+Your job is to determine EXACTLY which specialist agents are necessary
+to answer the user's request.
+
+DO NOT select agents that are not needed.
 
 Available agents:
-- flight_agent: flights, airports, airlines, routes, airfare, or booking advice
-- hotel_agent: hotels, accommodation, neighborhoods, or places to stay
-- weather_agent: weather, climate, season, forecast, or packing advice
-- budget_agent: cost, affordability, price limits, or budget feasibility
-- itinerary_agent: creates the integrated travel plan and must always be included
+
+- flight_agent:
+  Use for flights, airfare, cheapest flights, airlines, airports,
+  routes, flight duration, or booking advice.
+
+- hotel_agent:
+  Use for hotels, accommodation, hostels, resorts,
+  neighborhoods, or places to stay.
+
+- weather_agent:
+  Use for weather, climate, forecast, seasonal conditions,
+  or weather-related packing advice.
+
+- budget_agent:
+  Use when the user explicitly asks about total trip cost,
+  affordability, budget feasibility, or money-saving across
+  multiple travel categories.
+
+- itinerary_agent:
+  Use ONLY when the user explicitly asks for:
+  - an itinerary
+  - a day-by-day plan
+  - a complete trip plan
+  - sightseeing planning
+  - a full travel plan combining multiple aspects
+
+IMPORTANT:
+
+If the user asks ONLY for a flight, select ONLY flight_agent.
+
+If the user asks ONLY for a hotel, select ONLY hotel_agent.
+
+If the user asks ONLY about weather, select ONLY weather_agent.
+
+If the user asks ONLY about budget/cost, select ONLY budget_agent.
+
+Do NOT add itinerary_agent just because the request mentions a destination.
+
+Examples:
+
+User:
+"Find the cheapest flight from Delhi to Bali"
+
+Return:
+["flight_agent"]
+
+User:
+"What is the weather in Bali next week?"
+
+Return:
+["weather_agent"]
+
+User:
+"Find me a hotel in Bali under $100"
+
+Return:
+["hotel_agent"]
+
+User:
+"How much would a 7 day Bali trip cost?"
+
+Return:
+["budget_agent"]
+
+User:
+"Plan a 7 day trip to Bali including flights, hotels and sightseeing"
+
+Return:
+["flight_agent", "hotel_agent", "weather_agent", "budget_agent", "itinerary_agent"]
+
+User:
+"Give me the cheapest flight and weather forecast for Bali"
+
+Return:
+["flight_agent", "weather_agent"]
+
+Only select agents that contribute directly to answering the request.
 
 Return strict JSON only using this schema:
+
 {{
-  "selected_agents": ["flight_agent", "hotel_agent", "weather_agent", "budget_agent", "itinerary_agent"],
-  "trip_constraints": {{
-    "destination": "",
-    "origin": "",
-    "duration": "",
-    "budget": "",
-    "travel_style": "",
-    "special_preferences": []
-  }},
-  "reasoning": ""
+    "selected_agents": [],
+    "trip_constraints": {{
+        "destination": "",
+        "origin": "",
+        "duration": "",
+        "budget": "",
+        "travel_style": "",
+        "special_preferences": []
+    }},
+    "reasoning": ""
 }}
 
 User request:
+
 {query}
 """
-
     try:
         supervisor_raw = _llm_text(
             "You route work to travel specialist agents. Return strict JSON only.",
@@ -246,10 +323,6 @@ User request:
             name for name in AGENT_ORDER
             if name in requested_agents and name in KNOWN_AGENTS
         ]
-
-        # The itinerary agent integrates whichever specialist results were selected.
-        if "itinerary_agent" not in selected_agents:
-            selected_agents.append("itinerary_agent")
 
         constraints = _empty_constraints()
         parsed_constraints = parsed.get("trip_constraints", {})
@@ -668,18 +741,27 @@ def route_from_supervisor(state: TravelState) -> str:
 
 
 def route_after_agent(current_agent: str):
+
     def route(state: TravelState) -> str:
+
         selected = _selected_agents(state)
+
         current_index = AGENT_ORDER.index(current_agent)
 
-        for next_agent in AGENT_ORDER[current_index + 1 :]:
+        # Find the next selected specialist.
+        for next_agent in AGENT_ORDER[current_index + 1:]:
+
             if next_agent in selected:
                 return next_agent
 
-        return "itinerary_agent"
+        # If itinerary was explicitly requested, create it.
+        if "itinerary_agent" in selected:
+            return "itinerary_agent"
+
+        # Otherwise, go directly to the final response.
+        return "final_agent"
 
     return route
-
 
 # =========================
 # Build Graph
