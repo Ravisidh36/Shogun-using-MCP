@@ -71,6 +71,7 @@ class TravelState(TypedDict, total=False):
     human_feedback: str
     final_response: str
     llm_calls: int
+    revision_count: int
 
 
 KNOWN_AGENTS = {
@@ -88,6 +89,8 @@ AGENT_ORDER = [
     "budget_agent",
     "itinerary_agent",
 ]
+
+MAX_HITL_REVISIONS = 3
 
 # Deterministic checks are intentionally used for high-impact routing decisions.
 # The LLM must not silently turn a country into a city.
@@ -510,7 +513,13 @@ Weather Results:
 Budget Results:
 {state.get('budget_results', '')}
 
-Make the itinerary practical, budget-aware, and easy to follow.
+Previous Human Feedback:
+{state.get('human_feedback', '') or 'No previous revision feedback.'}
+
+Revision Number: {state.get('revision_count', 0)}
+
+Apply the previous human feedback when this is a revision. Make the itinerary practical,
+budget-aware, and easy to follow. Clearly respect the user's requested constraints.
 Create a clear draft that is ready for human review.
 """
     response = llm.invoke(
@@ -519,9 +528,12 @@ Create a clear draft that is ready for human review.
             HumanMessage(content=prompt),
         ]
     )
+    revision_count = state.get("revision_count", 0)
     approval_request = (
         "Please review the generated draft itinerary. Approve it to create the "
         "final polished plan, or provide feedback for revision."
+        if revision_count == 0
+        else f"Revised draft {revision_count}/{MAX_HITL_REVISIONS}: review the changes and approve, or request another revision."
     )
     return {
         "itinerary": response.content,
@@ -547,11 +559,32 @@ def human_approval_agent(state: TravelState):
     )
     approved = bool(review.get("approved", False))
     human_feedback = str(review.get("feedback", "")).strip()
+    revision_count = state.get("revision_count", 0)
+    if not approved:
+        revision_count += 1
     return {
         "approved": approved,
         "human_feedback": human_feedback,
+        "revision_count": revision_count,
         "messages": [AIMessage(content="Human approval step completed.")],
     }
+
+
+def _content_to_text(content: Any) -> str:
+    """Normalize LangChain message content into plain text for the API/UI."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("text"):
+                parts.append(str(block["text"]))
+            elif getattr(block, "text", None):
+                parts.append(str(block.text))
+        return "\n".join(parts)
+    return str(content) if content is not None else ""
 
 
 def final_agent(state: TravelState):
@@ -572,12 +605,15 @@ def final_agent(state: TravelState):
 
     if state.get("approved", False):
         review_instruction = (
-            "The user approved the draft. Preserve its decisions while polishing it."
+            "The user approved the latest draft. Preserve its decisions while polishing it."
         )
     elif "itinerary_agent" in selected_agents:
         review_instruction = f"""
-The user requested a revision. Apply this feedback carefully:
-{state.get('human_feedback', '') or 'Improve the draft before finalizing it.'}
+The user did not approve the latest draft after {state.get('revision_count', 0)} revision(s).
+The revision limit of {MAX_HITL_REVISIONS} has been reached. Present the latest revised
+itinerary transparently and explain that further changes can be requested in a new mission.
+Latest feedback:
+{state.get('human_feedback', '') or 'No additional feedback supplied.'}
 """
     else:
         review_instruction = "No human-review step was required for this focused request."
@@ -633,9 +669,37 @@ CRITICAL RESPONSE RULES:
             HumanMessage(content=final_prompt),
         ]
     )
+    final_response = _content_to_text(response.content).strip()
+    print(f"FINAL RESPONSE LENGTH: {len(final_response)}", flush=True)
+
+    # Never return an empty briefing to the frontend. Preserve the useful
+    # itinerary/research output if the final synthesis model returns no text.
+    if not final_response:
+        print("Final synthesis returned empty content; using workflow output fallback.", flush=True)
+        if state.get("itinerary"):
+            final_response = (
+                "The final summary could not be generated, so here is the latest "
+                "itinerary draft instead:\n\n" + _content_to_text(state["itinerary"])
+            )
+        else:
+            sections = []
+            for key, title in (
+                ("flight_results", "Flight information"),
+                ("hotel_results", "Accommodation"),
+                ("weather_results", "Weather"),
+                ("budget_results", "Budget analysis"),
+            ):
+                value = _content_to_text(state.get(key, "")).strip()
+                if value:
+                    sections.append(f"## {title}\n\n{value}")
+            final_response = "\n\n".join(sections) or (
+                "I could not generate a briefing for this request. Please try again."
+            )
+
+    print("FINAL RESPONSE PREVIEW:", repr(final_response[:300]), flush=True)
     return {
-        "final_response": response.content,
-        "messages": [response],
+        "final_response": final_response,
+        "messages": [AIMessage(content=final_response)],
         "llm_calls": state.get("llm_calls", 0) + 1,
     }
 
@@ -661,6 +725,14 @@ def route_from_supervisor(state: TravelState) -> str:
         return "guardrail_blocked"
     selected = _selected_agents(state)
     return selected[0] if selected else "final_agent"
+
+
+def route_after_human_approval(state: TravelState) -> str:
+    if state.get("approved", False):
+        return "final_agent"
+    if state.get("revision_count", 0) >= MAX_HITL_REVISIONS:
+        return "final_agent"
+    return "itinerary_agent"
 
 
 def route_after_agent(current_agent: str):
@@ -694,7 +766,11 @@ graph.add_conditional_edges("hotel_agent", route_after_agent("hotel_agent"), ROU
 graph.add_conditional_edges("weather_agent", route_after_agent("weather_agent"), ROUTE_MAP)
 graph.add_conditional_edges("budget_agent", route_after_agent("budget_agent"), ROUTE_MAP)
 graph.add_edge("itinerary_agent", "human_approval")
-graph.add_edge("human_approval", "final_agent")
+graph.add_conditional_edges(
+    "human_approval",
+    route_after_human_approval,
+    {"itinerary_agent": "itinerary_agent", "final_agent": "final_agent"},
+)
 graph.add_edge("final_agent", END)
 graph.add_edge("guardrail_blocked", END)
 
@@ -720,8 +796,9 @@ def _interrupt_payload(result: dict[str, Any]) -> dict[str, Any] | None:
 
 def _serialize_result(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
     messages = result.get("messages", [])
-    last_message = messages[-1].content if messages else ""
-    answer = result.get("final_response") or last_message
+    last_message = _content_to_text(messages[-1].content) if messages else ""
+    final_response = _content_to_text(result.get("final_response", "")).strip()
+    answer = final_response or last_message
     interrupt_payload = _interrupt_payload(result)
 
     if interrupt_payload:
@@ -730,6 +807,7 @@ def _serialize_result(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
     return {
         "thread_id": thread_id,
         "answer": answer,
+        "final_response": final_response,
         "requires_approval": interrupt_payload is not None,
         "approval_request": (
             interrupt_payload.get("approval_request", "")
@@ -748,6 +826,8 @@ def _serialize_result(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
         "guardrail_reason": result.get("guardrail_reason", ""),
         "approved": result.get("approved", False),
         "human_feedback": result.get("human_feedback", ""),
+        "revision_count": result.get("revision_count", 0),
+        "max_revision_count": MAX_HITL_REVISIONS,
         "llm_calls": result.get("llm_calls", 0),
     }
 
@@ -773,6 +853,7 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
         "approved": False,
         "human_feedback": "",
         "final_response": "",
+        "revision_count": 0,
         "llm_calls": 0,
     }
 
@@ -782,8 +863,19 @@ def run_travel_agent(user_input: str, thread_id: str | None = None):
 
 def resume_travel_agent(thread_id: str, approved: bool, feedback: str = ""):
     config = {"configurable": {"thread_id": thread_id}}
+    print(
+        f"Resuming HITL thread={thread_id} approved={approved} "
+        f"feedback_length={len(feedback.strip())}",
+        flush=True,
+    )
     result = travel_graph.invoke(
         Command(resume={"approved": approved, "feedback": feedback.strip()}),
         config=config,
+    )
+    print(
+        f"HITL resume complete thread={thread_id} "
+        f"requires_approval={bool(_interrupt_payload(result))} "
+        f"revision_count={result.get('revision_count', 0)}",
+        flush=True,
     )
     return _serialize_result(result, thread_id)
