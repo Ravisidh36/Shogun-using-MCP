@@ -730,7 +730,7 @@ def route_from_supervisor(state: TravelState) -> str:
 def route_after_human_approval(state: TravelState) -> str:
     if state.get("approved", False):
         return "final_agent"
-    if state.get("revision_count", 0) >= MAX_HITL_REVISIONS:
+    if state.get("revision_count", 0) > MAX_HITL_REVISIONS:
         return "final_agent"
     return "itinerary_agent"
 
