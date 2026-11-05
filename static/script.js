@@ -439,7 +439,12 @@
       budget_agent: "Budget Analyst",
       itinerary_agent: "Itinerary Strategist",
     };
-    el.approvalMeta.textContent = selected.length ? `Supervisor selected: ${selected.map((x) => names[x] || x).join(" · ")}` : "The Supervisor has prepared this plan for human review.";
+    const revisionLabel = payload.revision_count
+      ? ` · Revision ${payload.revision_count}/${payload.max_revision_count || 3}`
+      : "";
+    el.approvalMeta.textContent = (selected.length
+      ? `Supervisor selected: ${selected.map((x) => names[x] || x).join(" · ")}`
+      : "The Supervisor has prepared this plan for human review.") + revisionLabel;
     el.approvalFeedback.value = "";
     el.approvalStatus.hidden = true;
     el.approvalStatus.textContent = "";
@@ -459,7 +464,10 @@
 
   function renderResults(payload) {
     lastPayload = payload;
-    el.panels.answer.innerHTML = renderMarkdown(payload.answer);
+    const answer = String(payload.answer || payload.final_response || "").trim();
+    el.panels.answer.innerHTML = renderMarkdown(
+      answer || "The workflow completed, but no final briefing was returned. Please check the Render logs for the final-agent response."
+    );
     renderFlightPanel(el.panels.flights, payload.flight_data, payload.flight_results);
     renderWeatherPanel(el.panels.weather, payload.weather_data, payload.weather_results);
     renderCollapsibleMarkdown(el.panels.hotels, payload.hotel_results);
@@ -542,7 +550,9 @@
     if (approvalInProgress) return;
     const threadId = lastPayload?.thread_id || getThreadId();
     if (!threadId) return renderError("No active travel mission was found.");
-    const feedback = el.approvalFeedback.value.trim();
+    // Feedback belongs to Request Changes. Approve & Finalize must not silently
+    // submit revision instructions that the approved path intentionally ignores.
+    const feedback = approved ? "" : el.approvalFeedback.value.trim();
     if (!approved && !feedback) {
       el.approvalStatus.hidden = false;
       el.approvalStatus.textContent = "Please describe what you want changed.";
